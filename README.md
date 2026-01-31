@@ -20,6 +20,12 @@ pnpm start
 pnpm test
 ```
 
+End-to-end test: 
+
+```
+pnpm test:e2e
+```
+
 ## License
 
 GPL-3.0

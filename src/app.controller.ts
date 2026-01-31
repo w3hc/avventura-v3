@@ -16,6 +16,17 @@ import {
 import { IsString, IsNotEmpty, IsNumber } from 'class-validator';
 import { AppService, Game, Step } from './app.service';
 
+class StartDto {
+  @ApiProperty({
+    description: 'The story file name without .md extension (e.g., "in-the-forest" or "montpellier-medieval")',
+    required: false,
+    default: 'in-the-forest'
+  })
+  @IsString()
+  @IsNotEmpty()
+  story?: string;
+}
+
 class MoveDto {
   @ApiProperty({ description: 'The game ID' })
   @IsString()
@@ -48,14 +59,16 @@ export class AppController {
   @ApiOperation({
     summary: 'Start a new game',
   })
+  @ApiBody({ type: StartDto, required: false })
   @ApiResponse({
     status: 201,
     description: 'New game created successfully',
   })
   @ApiResponse({ status: 500, description: 'Internal server error' })
-  async start(): Promise<Game> {
+  async start(@Body() body?: StartDto): Promise<Game> {
     this.logger.log('POST /start endpoint called');
-    return this.appService.start();
+    const storyFile = body?.story ? `${body.story}.md` : 'in-the-forest.md';
+    return this.appService.start(storyFile);
   }
 
   @Post('move')

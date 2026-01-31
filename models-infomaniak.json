@@ -1,0 +1,230 @@
+{
+    "result": "success",
+    "data": [
+        {
+            "id": 2,
+            "name": "whisper",
+            "type": "stt",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/openai/audio/transcriptions",
+            "description": "Whisper V3",
+            "info_status": "ready",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/whisper.svg",
+            "last_updated_at": "2024-07-01",
+            "max_token_input": null,
+            "version": "3.0",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 6,
+            "name": "llama3",
+            "type": "llm",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/openai/chat/completions",
+            "description": "Llama 3.3",
+            "info_status": "ready",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/llama3.svg",
+            "last_updated_at": "2024-07-01",
+            "max_token_input": 100000,
+            "version": "0.1",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 8,
+            "name": "photomaker",
+            "type": "image",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/images/generations/photo_maker",
+            "description": "Photomaker V2",
+            "info_status": "coming_soon",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/photomaker.svg",
+            "last_updated_at": "2024-07-15",
+            "max_token_input": null,
+            "version": "2.0",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 10,
+            "name": "flux",
+            "type": "image",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/openai/images/generations",
+            "description": "Flux schnell",
+            "info_status": "ready",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/flux.svg",
+            "last_updated_at": "2024-10-01",
+            "max_token_input": null,
+            "version": "0.1",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 11,
+            "name": "granite",
+            "type": "llm",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/openai/chat/completions",
+            "description": "granite-3.1-8b",
+            "info_status": "ready",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/granite.svg",
+            "last_updated_at": "2024-12-04",
+            "max_token_input": 128000,
+            "version": "3.1",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 12,
+            "name": "bge_multilingual_gemma2",
+            "type": "embedding",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/openai/v1/embeddings",
+            "description": "Bge Multilingual Gemma2",
+            "info_status": "coming_soon",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/bge.svg",
+            "last_updated_at": "2024-12-04",
+            "max_token_input": 8000,
+            "version": "1.0",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 13,
+            "name": "mini_lm_l12_v2",
+            "type": "embedding",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/openai/v1/embeddings",
+            "description": "All MiniLM L12 v2",
+            "info_status": "coming_soon",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/minilm.svg",
+            "last_updated_at": "2024-12-04",
+            "max_token_input": 128,
+            "version": "2.0",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 16,
+            "name": "mistral3",
+            "type": "llm",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/openai/chat/completions",
+            "description": "Mistral-Small-3.2-24B-Instruct-2506",
+            "info_status": "ready",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/mixtral.svg",
+            "last_updated_at": "2025-07-03",
+            "max_token_input": 128000,
+            "version": "3.2",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 17,
+            "name": "qwen3",
+            "type": "llm",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/openai/chat/completions",
+            "description": "Qwen/Qwen3-VL-235B-A22B-Instruct",
+            "info_status": "ready",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/qwen.svg",
+            "last_updated_at": "2025-10-09",
+            "max_token_input": 262144,
+            "version": "3",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 18,
+            "name": "gemma3n",
+            "type": "llm",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/1/ai/%7Bproduct_id%7D/openai/chat/completions",
+            "description": "Gemma-3n-E4B-it",
+            "info_status": "ready",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/gemma.svg",
+            "last_updated_at": "2025-07-30",
+            "max_token_input": 32000,
+            "version": "3",
+            "meta": {
+                "is_beta": false
+            }
+        },
+        {
+            "id": 20,
+            "name": "swiss-ai/Apertus-70B-Instruct-2509",
+            "type": "llm",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/2/ai/%7Bproduct_id%7D/openai/v1/chat/completions",
+            "description": "Apertus-70B-Instruct-2509",
+            "info_status": "coming_soon",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/apertus.svg",
+            "last_updated_at": "2025-10-09",
+            "max_token_input": 65536,
+            "version": null,
+            "meta": {
+                "is_beta": true
+            }
+        },
+        {
+            "id": 21,
+            "name": "Qwen/Qwen3-Embedding-8B",
+            "type": "embedding",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/2/ai/%7Bproduct_id%7D/openai/v1/embeddings",
+            "description": "Qwen/Qwen3-Embedding-8B",
+            "info_status": "coming_soon",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/qwen.svg",
+            "last_updated_at": "2025-11-24",
+            "max_token_input": 8192,
+            "version": null,
+            "meta": {
+                "is_beta": true
+            }
+        },
+        {
+            "id": 22,
+            "name": "openai/gpt-oss-120b",
+            "type": "llm",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/2/ai/%7Bproduct_id%7D/openai/v1/chat/completions",
+            "description": "openai/gpt-oss-120b",
+            "info_status": "coming_soon",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/openai.svg",
+            "last_updated_at": "2025-11-26",
+            "max_token_input": 131072,
+            "version": null,
+            "meta": {
+                "is_beta": true
+            }
+        },
+        {
+            "id": 23,
+            "name": "BAAI/bge-reranker-v2-m3",
+            "type": "reranker",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/2/ai/%7Bproduct_id%7D/cohere/v2/rerank",
+            "description": "BAAI/bge-reranker-v2-m3",
+            "info_status": "coming_soon",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/bge.svg",
+            "last_updated_at": "2025-12-12",
+            "max_token_input": null,
+            "version": null,
+            "meta": {
+                "is_beta": true
+            }
+        },
+        {
+            "id": 24,
+            "name": "Qwen/Qwen3-Reranker-0.6B",
+            "type": "reranker",
+            "documentation_link": "https://developer.infomaniak.com/docs/api/post/2/ai/%7Bproduct_id%7D/cohere/v2/rerank",
+            "description": "Qwen/Qwen3-Reranker-0.6B",
+            "info_status": "coming_soon",
+            "logo_url": "https://storage4.infomaniak.com/ai-tools/public/logos/qwen.svg",
+            "last_updated_at": "2025-12-12",
+            "max_token_input": null,
+            "version": null,
+            "meta": {
+                "is_beta": true
+            }
+        }
+    ]
+}

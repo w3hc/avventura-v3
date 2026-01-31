@@ -1,0 +1,45 @@
+[
+  {
+    "id": "FAESUXUU",
+    "story": "in-the-forest.md",
+    "previously": "Vous avez exploré la clairière et découvert des plantes fascinantes. Un écureuil roux curieux vous a observé de près avant de grimper à un arbre. Finn vous emmène le long du ruisseau, où vous voyez des traces de lapins et d'oiseaux. Vous entendez le doux bruit de l'eau qui coule sur les pierres. Vous suivez le ruisseau jusqu'à sa source, une petite cascade où l'eau tombe dans un bassin clair. Finn vous montre des libellules qui dansent au-dessus de l'eau et des poissons qui nagent tranquillement. Vous vous asseyez près du bassin et profitez de la vue paisible. Finn s'assoit à côté de vous et commence à raconter une histoire sur la cascade. Il parle d'un ancien esprit de l'eau qui protège le ruisseau et aide les animaux à trouver de l'eau fraîche. Vous regardez attentivement l'eau, mais vous ne voyez rien d'inhabituel. Finn vous explique que l'esprit de l'eau est timide et n'apparaît que rarement, surtout aux personnes qui respectent la nature. Vous décidez de continuer votre exploration le long du ruisseau. Finn vous guide vers un autre endroit où l'eau forme un petit lac. Ici, vous voyez des canards et des grenouilles profiter de l'eau calme. Finn vous raconte des histoires sur les animaux qui vivent près du lac et comment ils interagissent avec l'esprit de l'eau. Vous décidez de continuer à explorer le lac. Finn vous guide vers une partie plus profonde du lac où vous voyez des poissons colorés nager. Vous remarquez aussi des plantes aquatiques qui poussent le long des bords du lac. Finn explique l'importance de ces plantes pour les animaux qui vivent dans et autour du lac. Vous vous approchez lentement du bord de l'eau pour observer les poissons de plus près. Finn vous montre comment les poissons se cachent parmi les plantes aquatiques pour échapper aux prédateurs. Vous remarquez des poissons de différentes couleurs et tailles, chacun avec ses propres habitudes et comportements. Finn vous explique comment ces poissons jouent un rôle important dans l'écosystème du lac.",
+    "currentStep": {
+      "desc": "Vous vous approchez lentement du bord de l'eau pour observer les poissons de plus près. Finn vous montre comment les poissons se cachent parmi les plantes aquatiques pour échapper aux prédateurs. Vous remarquez des poissons de différentes couleurs et tailles, chacun avec ses propres habitudes et comportements. Finn vous explique comment ces poissons jouent un rôle important dans l'écosystème du lac.",
+      "options": [
+        "Regarder les poissons plus longtemps",
+        "Demander à Finn plus d'informations sur les poissons",
+        "Continuer à explorer le lac"
+      ],
+      "action": "continue"
+    },
+    "nextSteps": [
+      {
+        "desc": "Vous continuez à observer les poissons, remarquant leurs mouvements gracieux et leurs interactions. Finn vous montre comment certains poissons nettoient les écailles des autres, créant une relation symbiotique. Vous apprenez que chaque poisson a un rôle unique dans le maintien de l'équilibre du lac.",
+        "options": [
+          "Regarder les poissons plus longtemps",
+          "Demander à Finn plus d'informations sur les poissons",
+          "Continuer à explorer le lac"
+        ],
+        "action": "continue"
+      },
+      {
+        "desc": "Vous demandez à Finn plus d'informations sur les poissons. Il vous explique les différentes espèces, leurs habitudes alimentaires et comment elles contribuent à la santé du lac. Vous apprenez que certains poissons mangent des algues, aidant à garder l'eau claire et propre.",
+        "options": [
+          "Regarder les poissons plus longtemps",
+          "Demander à Finn plus d'informations sur les poissons",
+          "Continuer à explorer le lac"
+        ],
+        "action": "continue"
+      },
+      {
+        "desc": "Vous décidez de continuer à explorer le lac. Finn vous guide vers une autre partie du lac où vous voyez des oiseaux aquatiques pêcher. Vous observez comment ils utilisent leurs becs pour attraper des poissons, montrant l'interdépendance des espèces dans l'écosystème du lac.",
+        "options": [
+          "Regarder les poissons plus longtemps",
+          "Demander à Finn plus d'informations sur les poissons",
+          "Continuer à explorer le lac"
+        ],
+        "action": "continue"
+      }
+    ]
+  }
+]

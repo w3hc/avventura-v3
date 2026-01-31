@@ -11,7 +11,15 @@ describe('AppController (e2e)', () => {
 
   const mockAppService = {
     getModels: jest.fn().mockResolvedValue(modelsData),
-    move: jest.fn().mockResolvedValue('Mocked AI response'),
+    start: jest.fn().mockReturnValue({
+      id: 'TESTGAME',
+      story: 'in-the-forest.md',
+      state: 'The story just began.',
+    }),
+    move: jest.fn().mockResolvedValue({
+      response:
+        '{"desc": "Mocked AI response", "options": ["Option 1", "Option 2", "Option 3"]}',
+    }),
   };
 
   beforeEach(async () => {
@@ -37,13 +45,30 @@ describe('AppController (e2e)', () => {
       });
   });
 
+  it('/start (POST)', () => {
+    return request(app.getHttpServer())
+      .post('/start')
+      .expect(201)
+      .expect((res) => {
+        expect(res.body).toHaveProperty('id');
+        expect(res.body).toHaveProperty('story');
+        expect(res.body).toHaveProperty('state');
+        expect((res.body as { state: string }).state).toBe(
+          'The story just began.',
+        );
+      });
+  });
+
   it('/move (POST)', () => {
     return request(app.getHttpServer())
       .post('/move')
-      .send({ message: 'Hello' })
-      .expect(201)
+      .send({ gameId: 'TESTGAME', message: 'Choice 1' })
+      .expect(200)
       .expect((res) => {
-        expect(res.text).toBe('Mocked AI response');
+        expect(res.body).toHaveProperty('response');
+        expect(typeof (res.body as { response: string }).response).toBe(
+          'string',
+        );
       });
   });
 });

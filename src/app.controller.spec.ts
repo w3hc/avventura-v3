@@ -35,18 +35,43 @@ describe('AppController', () => {
     });
   });
 
+  describe('start', () => {
+    it('should create a new game', () => {
+      const mockGame = {
+        id: 'ABCDEFGH',
+        story: 'in-the-forest.md',
+        state: 'The story just began.',
+      };
+
+      const startSpy = jest
+        .spyOn(appController['appService'], 'start')
+        .mockReturnValue(mockGame);
+
+      const result = appController.start();
+      expect(result).toEqual(mockGame);
+      expect(startSpy).toHaveBeenCalled();
+    });
+  });
+
   describe('move', () => {
-    it('should return AI response', async () => {
-      const mockMessage = 'What is the capital of France?';
-      const mockResponse = 'The capital of France is Paris.';
+    it('should return AI response for a game', async () => {
+      const mockGameId = 'ABCDEFGH';
+      const mockMessage = 'Choice 1';
+      const mockResponse = {
+        response:
+          '{"desc": "You walk deeper into the forest...", "options": ["Go left", "Go right", "Go back"]}',
+      };
 
       const moveSpy = jest
         .spyOn(appController['appService'], 'move')
         .mockResolvedValue(mockResponse);
 
-      const result = await appController.move({ message: mockMessage });
-      expect(result).toBe(mockResponse);
-      expect(moveSpy).toHaveBeenCalledWith(mockMessage);
+      const result = await appController.move({
+        gameId: mockGameId,
+        message: mockMessage,
+      });
+      expect(result).toEqual(mockResponse);
+      expect(moveSpy).toHaveBeenCalledWith(mockGameId, mockMessage);
     });
   });
 });

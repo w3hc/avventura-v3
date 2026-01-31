@@ -1,5 +1,5 @@
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
-import { readFileSync, writeFileSync } from 'fs';
+import { Injectable, Logger, HttpException, HttpStatus, OnModuleInit } from '@nestjs/common';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 
@@ -36,10 +36,17 @@ export interface ModelsResponse {
 }
 
 @Injectable()
-export class AppService {
+export class AppService implements OnModuleInit {
   private readonly logger = new Logger(AppService.name);
   private readonly baseUrl = `https://api.infomaniak.com/1/ai/${process.env.INFOMANIAK_PRODUCT_ID}/openai/chat/completions`;
   private readonly gamesPath = join(process.cwd(), 'games.json');
+
+  onModuleInit() {
+    if (!existsSync(this.gamesPath)) {
+      this.logger.log('games.json not found, creating empty file');
+      writeFileSync(this.gamesPath, '[]', 'utf-8');
+    }
+  }
 
   private generateGameId(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -135,6 +142,15 @@ Generate the initial state of the adventure as a JSON response with:
 - Respond ENTIRELY in: French
 - ALL text (descriptions, options, dialogue) must be in French
 - Maintain cultural authenticity while making it accessible to French speakers
+
+**PATH DIVERGENCE REQUIREMENTS:**
+- Each of the 3 paths MUST be EXTREMELY DIFFERENT from each other
+- Different settings/locations: Each path should take place in different locations or environments
+- Different characters: Each path should introduce unique NPCs that don't appear in other paths
+- Different themes/tones: Each path should have a distinct emotional tone (adventure vs. danger vs. mystery vs. diplomacy, etc.)
+- Mutually exclusive events: Choosing one path should lock out the events/opportunities from other paths
+- Different consequences: Each path leads to fundamentally different outcomes, not just variations
+- Different skills/resources: Each path should involve different abilities, tools, or knowledge
 
 **IMPORTANT:**
 - Return ONLY the JSON object, no markdown code blocks
@@ -432,11 +448,23 @@ Generate ONLY two fields:
 - ALL text (descriptions, options, dialogue) must be in French
 - Maintain cultural authenticity while making it accessible to French speakers
 
+**PATH DIVERGENCE REQUIREMENTS:**
+- Each of the 3 paths MUST be EXTREMELY DIFFERENT from each other
+- Different settings/locations: Each path should take place in different locations or environments
+- Different characters: Each path should introduce unique NPCs that don't appear in other paths
+- Different themes/tones: Each path should have a distinct emotional tone (adventure vs. danger vs. mystery vs. diplomacy, etc.)
+- Mutually exclusive events: Choosing one path should lock out the events/opportunities from other paths
+- Different consequences: Each path leads to fundamentally different outcomes, not just variations
+- Different skills/resources: Each path should involve different abilities, tools, or knowledge
+- Ensure paths remain distinct throughout the story, not converging back together
+
 **IMPORTANT:**
 - Return ONLY the JSON object with "previously" and "nextSteps" fields - DO NOT include "currentStep"
 - No markdown code blocks
 - The "previously" field MUST incorporate both the old recap AND the new events
-- Keep the story progressive and avoid repetition
+- Keep the story progressive and NEVER repeat situations or scenarios from the previously recap
+- Each new scenario must introduce NEW elements, locations, characters, or events
+- Review the previously recap carefully and ensure all new content is fresh and different
 - Each nextStep must meaningfully correspond to the option it represents
 - Set action to "milestone" for significant story points, "continue" otherwise`;
 

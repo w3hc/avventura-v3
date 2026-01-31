@@ -14,9 +14,10 @@ describe('AppController', () => {
     appController = app.get<AppController>(AppController);
   });
 
-  describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+  describe('getModels', () => {
+    it('should return models', async () => {
+      const result = await appController.getModels();
+      expect(result).toBeDefined();
     });
   });
 });

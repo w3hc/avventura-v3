@@ -1,0 +1,29 @@
+[
+    {
+        "desc": "Description of the current step (Option 1)",
+        "options": [
+            "Option 1",
+            "Option 2",
+            "Option 3"
+        ],
+        "action": "milestone"
+    },
+    {
+        "desc": "Description of the current step (Option 2)",
+        "options": [
+            "Option 1",
+            "Option 2",
+            "Option 3"
+        ],
+        "action": "milestone"
+    },
+    {
+        "desc": "Description of the current step (Option 3)",
+        "options": [
+            "Option 1",
+            "Option 2",
+            "Option 3"
+        ],
+        "action": "milestone"
+    }
+]

@@ -18,9 +18,10 @@ import { AppService, Game, Step } from './app.service';
 
 class StartDto {
   @ApiProperty({
-    description: 'The story file name without .md extension (e.g., "in-the-forest" or "montpellier-medieval")',
+    description:
+      'The story file name without .md extension (e.g., "in-the-forest" or "montpellier-medieval")',
     required: false,
-    default: 'in-the-forest'
+    default: 'in-the-forest',
   })
   @IsString()
   @IsNotEmpty()
@@ -33,7 +34,7 @@ class MoveDto {
   @IsNotEmpty()
   gameId: string;
 
-  @ApiProperty({ description: 'The index of the chosen option (0-2)' })
+  @ApiProperty({ description: 'The index of the chosen option (1-3)' })
   @IsNumber()
   choiceIndex: number;
 }
@@ -89,6 +90,6 @@ export class AppController {
     @Body() body: MoveDto,
   ): Promise<{ previously: string; currentStep: Step; nextSteps: Step[] }> {
     this.logger.log('POST /move endpoint called');
-    return this.appService.move(body.gameId, body.choiceIndex);
+    return this.appService.move(body.gameId, body.choiceIndex - 1);
   }
 }

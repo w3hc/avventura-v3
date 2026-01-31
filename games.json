@@ -88,41 +88,41 @@
   {
     "id": "FFNFTQTT",
     "story": "montpellier-medieval.md",
-    "previously": "Vous vous retrouvez transporté à Montpellier médiéval, au cœur de la Place de la Comédie. Jean-Jean vous accueille avec un grand sourire. 'Bienvenue à Montpellier !' dit-il. 'Je vends les meilleures pommes de la région. En veux-tu une ?' Il vous tend une pomme rouge et brillante. Vous acceptez la pomme que Jean-Jean vous tend. Elle est juteuse et délicieuse. 'Merci !' dites-vous en souriant. Jean-Jean vous propose de vous montrer les alentours de la ville. Vous demandez à Jean-Jean s'il connaît des moines dans la région. Jean-Jean sourit et dit: 'Bien sûr ! Il y a un monastère près de l'université. Les moines y étudient et prient. Ils sont très sages et pourraient vous apprendre beaucoup de choses.' Il vous propose de vous y rendre ensemble.",
+    "previously": "Vous vous retrouvez transporté à Montpellier médiéval, au cœur de la Place de la Comédie. Jean-Jean vous accueille avec un grand sourire. 'Bienvenue à Montpellier !' dit-il. 'Je vends les meilleures pommes de la région. En veux-tu une ?' Il vous tend une pomme rouge et brillante. Vous acceptez la pomme que Jean-Jean vous tend. Elle est juteuse et délicieuse. 'Merci !' dites-vous en souriant. Jean-Jean vous propose de vous montrer les alentours de la ville. Vous demandez à Jean-Jean s'il connaît des moines dans la région. Jean-Jean sourit et dit: 'Bien sûr ! Il y a un monastère près de l'université. Les moines y étudient et prient. Ils sont très sages et pourraient vous apprendre beaucoup de choses.' Il vous propose de vous y rendre ensemble. Vous décidez d'aller au monastère avec Jean-Jean. En chemin, il vous parle des différentes herbes médicinales que les moines cultivent dans leur jardin. Arrivés au monastère, un moine vous accueille chaleureusement et vous montre les anciens manuscrits qu'ils conservent précieusement. Vous remerciez le moine pour son accueil et ses explications. Jean-Jean vous propose de continuer votre exploration de la ville. Vous quittez le monastère et vous dirigez vers le marché animé de Montpellier. Les rues sont remplies de marchands vendant leurs produits, et l'air est rempli de bruits et d'odeurs variées. Vous retournez à la Place de la Comédie, où l'ambiance est toujours aussi animée. Des musiciens jouent de la musique traditionnelle, et des enfants courent autour de la fontaine. Jean-Jean vous propose de vous asseoir sur un banc pour profiter du spectacle. Vous discutez avec les passants et apprenez des anecdotes sur la vie quotidienne à Montpellier.",
     "currentStep": {
-      "desc": "Jean-Jean sourit et dit: 'Bien sûr ! Il y a un monastère près de l'université. Les moines y étudient et prient. Ils sont très sages et pourraient vous apprendre beaucoup de choses.' Il vous propose de vous y rendre ensemble.",
+      "desc": "Vous retournez à la Place de la Comédie, où l'ambiance est toujours aussi animée. Des musiciens jouent de la musique traditionnelle, et des enfants courent autour de la fontaine. Jean-Jean vous propose de vous asseoir sur un banc pour profiter du spectacle. Vous discutez avec les passants et apprenez des anecdotes sur la vie quotidienne à Montpellier.",
       "options": [
-        "Aller au monastère avec Jean-Jean",
-        "Demander à Jean-Jean ce que font les moines",
-        "Décider d'y aller seul plus tard"
+        "Écouter les musiciens",
+        "Parler aux enfants",
+        "Regarder les passants"
       ],
       "action": "continue"
     },
     "nextSteps": [
       {
-        "desc": "Vous décidez d'aller au monastère avec Jean-Jean. En chemin, il vous parle des différentes herbes médicinales que les moines cultivent dans leur jardin. Arrivés au monastère, un moine vous accueille chaleureusement et vous montre les anciens manuscrits qu'ils conservent précieusement.",
+        "desc": "Vous vous approchez des musiciens et écoutez leur mélodie envoûtante. Jean-Jean vous explique que ces musiciens viennent de différentes régions et jouent des airs traditionnels. Vous apprenez même quelques pas de danse médiévale !",
         "options": [
-          "Demander au moine de vous montrer les manuscrits",
-          "Poser des questions sur les herbes médicinales",
-          "Remercier et partir explorer la ville"
+          "Continuer à danser",
+          "Rejoindre les enfants près de la fontaine",
+          "Observer les passants"
         ],
         "action": "continue"
       },
       {
-        "desc": "Vous demandez à Jean-Jean ce que font les moines. Il explique que les moines passent leur temps à étudier, prier et cultiver des herbes médicinales. Ils aident aussi les malades et les pauvres de la ville. Jean-Jean vous propose de visiter le marché pour voir les produits que les moines vendent parfois.",
+        "desc": "Vous vous approchez des enfants qui jouent près de la fontaine. Ils vous invitent à jouer avec eux à un jeu médiéval appelé 'la marelle'. Vous passez un bon moment à sauter et à rire ensemble.",
         "options": [
-          "Aller au marché avec Jean-Jean",
-          "Demander plus de détails sur les herbes médicinales",
-          "Décider de visiter le monastère plus tard"
+          "Continuer à jouer avec les enfants",
+          "Écouter les musiciens",
+          "Regarder les passants"
         ],
         "action": "continue"
       },
       {
-        "desc": "Vous décidez d'y aller seul plus tard. Jean-Jean vous donne des indications pour trouver le monastère et vous souhaite une bonne visite. Vous promenez dans les rues animées de Montpellier, observant les artisans et les marchands avant de décider de vous rendre au monastère plus tard.",
+        "desc": "Vous observez les passants et remarquez un groupe de marchands qui discutent animement. Jean-Jean vous explique que ce sont des marchands de soie qui viennent de l'Orient. Ils échangent des histoires et des nouvelles de leurs voyages.",
         "options": [
-          "Visiter un atelier d'artisan",
-          "Acheter des fruits au marché",
-          "Aller directement au monastère"
+          "Parler aux marchands",
+          "Écouter les musiciens",
+          "Rejoindre les enfants"
         ],
         "action": "continue"
       }

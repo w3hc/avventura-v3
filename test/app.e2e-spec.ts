@@ -11,14 +11,57 @@ describe('AppController (e2e)', () => {
 
   const mockAppService = {
     getModels: jest.fn().mockResolvedValue(modelsData),
-    start: jest.fn().mockReturnValue({
+    start: jest.fn().mockResolvedValue({
       id: 'TESTGAME',
       story: 'in-the-forest.md',
-      state: 'The story just began.',
+      previously: 'First step.',
+      currentStep: {
+        desc: 'You are in the forest...',
+        options: ['Go left', 'Go right', 'Go back'],
+        action: 'start',
+      },
+      nextSteps: [
+        {
+          desc: 'You go left...',
+          options: ['Continue', 'Stop', 'Turn back'],
+          action: 'continue',
+        },
+        {
+          desc: 'You go right...',
+          options: ['Continue', 'Stop', 'Turn back'],
+          action: 'continue',
+        },
+        {
+          desc: 'You go back...',
+          options: ['Continue', 'Stop', 'Turn back'],
+          action: 'continue',
+        },
+      ],
     }),
     move: jest.fn().mockResolvedValue({
-      response:
-        '{"desc": "Mocked AI response", "options": ["Option 1", "Option 2", "Option 3"]}',
+      previously: 'You started in the forest. You chose to go left.',
+      currentStep: {
+        desc: 'You go left and find a path...',
+        options: ['Follow path', 'Go back', 'Rest'],
+        action: 'continue',
+      },
+      nextSteps: [
+        {
+          desc: 'You follow the path...',
+          options: ['Continue', 'Stop', 'Turn back'],
+          action: 'continue',
+        },
+        {
+          desc: 'You go back...',
+          options: ['Try again', 'Rest', 'Leave'],
+          action: 'continue',
+        },
+        {
+          desc: 'You rest...',
+          options: ['Continue', 'Sleep', 'Go back'],
+          action: 'continue',
+        },
+      ],
     }),
   };
 
@@ -45,29 +88,63 @@ describe('AppController (e2e)', () => {
       });
   });
 
-  it('/start (POST)', () => {
+  it('/start (POST) - with default story', () => {
     return request(app.getHttpServer())
       .post('/start')
       .expect(201)
       .expect((res) => {
         expect(res.body).toHaveProperty('id');
         expect(res.body).toHaveProperty('story');
-        expect(res.body).toHaveProperty('state');
-        expect((res.body as { state: string }).state).toBe(
-          'The story just began.',
+        expect(res.body).toHaveProperty('previously');
+        expect(res.body).toHaveProperty('currentStep');
+        expect(res.body).toHaveProperty('nextSteps');
+        expect((res.body as { story: string }).story).toBe(
+          'in-the-forest.md',
         );
+        expect(
+          (res.body as { currentStep: { options: string[] } }).currentStep
+            .options,
+        ).toHaveLength(3);
+        expect((res.body as { nextSteps: unknown[] }).nextSteps).toHaveLength(
+          3,
+        );
+      });
+  });
+
+  it('/start (POST) - with custom story', () => {
+    return request(app.getHttpServer())
+      .post('/start')
+      .send({ story: 'montpellier-medieval' })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body).toHaveProperty('id');
+        expect(res.body).toHaveProperty('story');
+        expect(res.body).toHaveProperty('previously');
+        expect(res.body).toHaveProperty('currentStep');
+        expect(res.body).toHaveProperty('nextSteps');
       });
   });
 
   it('/move (POST)', () => {
     return request(app.getHttpServer())
       .post('/move')
-      .send({ gameId: 'TESTGAME', message: 'Choice 1' })
+      .send({ gameId: 'TESTGAME', choiceIndex: 1 })
       .expect(200)
       .expect((res) => {
-        expect(res.body).toHaveProperty('response');
-        expect(typeof (res.body as { response: string }).response).toBe(
+        expect(res.body).toHaveProperty('previously');
+        expect(res.body).toHaveProperty('currentStep');
+        expect(res.body).toHaveProperty('nextSteps');
+        expect(typeof (res.body as { previously: string }).previously).toBe(
           'string',
+        );
+        expect(
+          (res.body as { currentStep: { desc: string } }).currentStep,
+        ).toHaveProperty('desc');
+        expect(
+          (res.body as { currentStep: { options: string[] } }).currentStep,
+        ).toHaveProperty('options');
+        expect((res.body as { nextSteps: unknown[] }).nextSteps).toHaveLength(
+          3,
         );
       });
   });

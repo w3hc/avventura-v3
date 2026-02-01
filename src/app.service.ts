@@ -1,5 +1,17 @@
-import { Injectable, Logger, HttpException, HttpStatus, OnModuleInit } from '@nestjs/common';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import {
+  Injectable,
+  Logger,
+  HttpException,
+  HttpStatus,
+  OnModuleInit,
+} from '@nestjs/common';
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  mkdirSync,
+} from 'fs';
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 
@@ -39,12 +51,12 @@ export interface ModelsResponse {
 export class AppService implements OnModuleInit {
   private readonly logger = new Logger(AppService.name);
   private readonly baseUrl = `https://api.infomaniak.com/1/ai/${process.env.INFOMANIAK_PRODUCT_ID}/openai/chat/completions`;
-  private readonly gamesPath = join(process.cwd(), 'games.json');
+  private readonly gamesDir = join(process.cwd(), 'games');
 
   onModuleInit() {
-    if (!existsSync(this.gamesPath)) {
-      this.logger.log('games.json not found, creating empty file');
-      writeFileSync(this.gamesPath, '[]', 'utf-8');
+    if (!existsSync(this.gamesDir)) {
+      this.logger.log('games directory not found, creating it');
+      mkdirSync(this.gamesDir, { recursive: true });
     }
   }
 
@@ -58,24 +70,46 @@ export class AppService implements OnModuleInit {
     return id;
   }
 
-  private readGames(): Game[] {
+  private readGame(gameId: string): Game | null {
     try {
-      const data = readFileSync(this.gamesPath, 'utf-8');
-      return JSON.parse(data) as Game[];
+      const gamePath = join(this.gamesDir, `${gameId}.json`);
+      if (!existsSync(gamePath)) {
+        return null;
+      }
+      const data = readFileSync(gamePath, 'utf-8');
+      return JSON.parse(data) as Game;
     } catch (error) {
       this.logger.error(
-        `Failed to read games.json: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to read game ${gameId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return null;
+    }
+  }
+
+  private getAllGameIds(): string[] {
+    try {
+      if (!existsSync(this.gamesDir)) {
+        return [];
+      }
+      const files = readdirSync(this.gamesDir);
+      return files
+        .filter((file) => file.endsWith('.json'))
+        .map((file) => file.replace('.json', ''));
+    } catch (error) {
+      this.logger.error(
+        `Failed to read games directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       return [];
     }
   }
 
-  private writeGames(games: Game[]): void {
+  private writeGame(game: Game): void {
     try {
-      writeFileSync(this.gamesPath, JSON.stringify(games, null, 2), 'utf-8');
+      const gamePath = join(this.gamesDir, `${game.id}.json`);
+      writeFileSync(gamePath, JSON.stringify(game, null, 4), 'utf-8');
     } catch (error) {
       this.logger.error(
-        `Failed to write games.json: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to write game ${game.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       throw new HttpException(
         'Failed to save game data',
@@ -260,9 +294,7 @@ Generate the initial state of the adventure as a JSON response with:
         nextSteps: aiResponse.nextSteps,
       };
 
-      const games = this.readGames();
-      games.push(newGame);
-      this.writeGames(games);
+      this.writeGame(newGame);
 
       this.logger.log(`Created new game with ID: ${newGame.id}`);
       return newGame;
@@ -282,8 +314,7 @@ Generate the initial state of the adventure as a JSON response with:
   }
 
   private getGame(gameId: string): Game {
-    const games = this.readGames();
-    const game = games.find((g) => g.id === gameId);
+    const game = this.readGame(gameId);
 
     if (!game) {
       this.logger.warn(`Game not found: ${gameId}`);
@@ -299,17 +330,16 @@ Generate the initial state of the adventure as a JSON response with:
     currentStep: Step,
     nextSteps: Step[],
   ): void {
-    const games = this.readGames();
-    const gameIndex = games.findIndex((g) => g.id === gameId);
+    const game = this.readGame(gameId);
 
-    if (gameIndex === -1) {
+    if (!game) {
       throw new HttpException('Game not found', HttpStatus.NOT_FOUND);
     }
 
-    games[gameIndex].previously = previously;
-    games[gameIndex].currentStep = currentStep;
-    games[gameIndex].nextSteps = nextSteps;
-    this.writeGames(games);
+    game.previously = previously;
+    game.currentStep = currentStep;
+    game.nextSteps = nextSteps;
+    this.writeGame(game);
     this.logger.log(`Updated game state for ID: ${gameId}`);
   }
 

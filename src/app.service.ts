@@ -42,6 +42,7 @@ export interface Step {
 export interface Game {
   id: string;
   story: string;
+  language: string;
   previously: string;
   currentStep: Step;
   nextSteps: Step[];
@@ -85,6 +86,22 @@ export class AppService implements OnModuleInit {
       id += chars[bytes[i] % chars.length];
     }
     return id;
+  }
+
+  private getFirstStepText(language: string): string {
+    const translations: Record<string, string> = {
+      en: 'First step.',
+      zh: '第一步。',
+      hi: 'पहला कदम।',
+      es: 'Primer paso.',
+      fr: 'Première étape.',
+      ar: 'الخطوة الأولى.',
+      bn: 'প্রথম ধাপ।',
+      ru: 'Первый шаг.',
+      pt: 'Primeiro passo.',
+      ur: 'پہلا قدم۔',
+    };
+    return translations[language] || 'Première étape.';
   }
 
   private readCosts(): CostsData {
@@ -181,7 +198,10 @@ export class AppService implements OnModuleInit {
     }
   }
 
-  async start(story: string = 'in-the-forest.md'): Promise<Game> {
+  async start(
+    story: string = 'in-the-forest.md',
+    language: string = 'fr',
+  ): Promise<Game> {
     this.logger.log(`Starting new game with story: ${story}`);
 
     // Load story content
@@ -236,9 +256,9 @@ Generate the initial state of the adventure as a JSON response with:
 }
 
 **CRITICAL LANGUAGE INSTRUCTION:**
-- Respond ENTIRELY in: French
-- ALL text (descriptions, options, dialogue) must be in French
-- Maintain cultural authenticity while making it accessible to French speakers
+- Respond ENTIRELY in the language with ISO 639-1 code: ${language}
+- ALL text in the JSON (descriptions, options, dialogue) must be in this language
+- Maintain cultural authenticity while making it accessible to speakers of this language
 
 **PATH DIVERGENCE REQUIREMENTS:**
 - Each of the 3 paths MUST be EXTREMELY DIFFERENT from each other
@@ -366,7 +386,9 @@ Generate the initial state of the adventure as a JSON response with:
       const newGame: Game = {
         id: this.generateGameId(),
         story,
-        previously: 'First step.',
+        language,
+        previously:
+          language === 'en' ? 'First step.' : this.getFirstStepText(language),
         currentStep: aiResponse.currentStep,
         nextSteps: aiResponse.nextSteps,
       };
@@ -480,6 +502,7 @@ Generate the initial state of the adventure as a JSON response with:
 
     // Get the game
     const game = this.getGame(gameId);
+    const language = game.language;
 
     // Validate choice index
     if (
@@ -557,9 +580,9 @@ Generate ONLY two fields:
 }
 
 **CRITICAL LANGUAGE INSTRUCTION:**
-- Respond ENTIRELY in: French
-- ALL text (descriptions, options, dialogue) must be in French
-- Maintain cultural authenticity while making it accessible to French speakers
+- Respond ENTIRELY in the language with ISO 639-1 code: ${language}
+- ALL text in the JSON (descriptions, options, dialogue) must be in this language
+- Maintain cultural authenticity while making it accessible to speakers of this language
 
 **PATH DIVERGENCE REQUIREMENTS:**
 - Each of the 3 paths MUST be EXTREMELY DIFFERENT from each other

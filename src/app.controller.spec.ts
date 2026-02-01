@@ -40,6 +40,7 @@ describe('AppController', () => {
       const mockGame = {
         id: 'ABCDEFGH',
         story: 'in-the-forest.md',
+        language: 'fr',
         previously: 'First step.',
         currentStep: {
           desc: 'You are in the forest...',
@@ -71,13 +72,14 @@ describe('AppController', () => {
 
       const result = await appController.start();
       expect(result).toEqual(mockGame);
-      expect(startSpy).toHaveBeenCalledWith('in-the-forest.md');
+      expect(startSpy).toHaveBeenCalledWith('in-the-forest.md', 'fr');
     });
 
     it('should create a new game with custom story', async () => {
       const mockGame = {
         id: 'TESTGAME',
         story: 'montpellier-medieval.md',
+        language: 'fr',
         previously: 'First step.',
         currentStep: {
           desc: 'You are in medieval Montpellier...',
@@ -111,7 +113,90 @@ describe('AppController', () => {
         story: 'montpellier-medieval',
       });
       expect(result).toEqual(mockGame);
-      expect(startSpy).toHaveBeenCalledWith('montpellier-medieval.md');
+      expect(startSpy).toHaveBeenCalledWith('montpellier-medieval.md', 'fr');
+    });
+
+    it('should create a new game with custom language', async () => {
+      const mockGame = {
+        id: 'TESTGAME',
+        story: 'in-the-forest.md',
+        language: 'es',
+        previously: 'Primer paso.',
+        currentStep: {
+          desc: 'Estás en el bosque...',
+          options: ['Ir a la izquierda', 'Ir a la derecha', 'Volver'],
+          action: 'start',
+        },
+        nextSteps: [
+          {
+            desc: 'Vas a la izquierda...',
+            options: ['Continuar', 'Parar', 'Volver'],
+            action: 'continue',
+          },
+          {
+            desc: 'Vas a la derecha...',
+            options: ['Continuar', 'Parar', 'Volver'],
+            action: 'continue',
+          },
+          {
+            desc: 'Vuelves...',
+            options: ['Continuar', 'Parar', 'Volver'],
+            action: 'continue',
+          },
+        ],
+      };
+
+      const startSpy = jest
+        .spyOn(appController['appService'], 'start')
+        .mockResolvedValue(mockGame);
+
+      const result = await appController.start({
+        language: 'es',
+      });
+      expect(result).toEqual(mockGame);
+      expect(startSpy).toHaveBeenCalledWith('in-the-forest.md', 'es');
+    });
+
+    it('should create a new game with custom story and language', async () => {
+      const mockGame = {
+        id: 'TESTGAME',
+        story: 'montpellier-medieval.md',
+        language: 'en',
+        previously: 'First step.',
+        currentStep: {
+          desc: 'You are in medieval Montpellier...',
+          options: ['Visit market', 'Go to castle', 'Explore'],
+          action: 'start',
+        },
+        nextSteps: [
+          {
+            desc: 'You visit the market...',
+            options: ['Buy food', 'Talk to merchant', 'Leave'],
+            action: 'continue',
+          },
+          {
+            desc: 'You go to the castle...',
+            options: ['Enter', 'Look around', 'Leave'],
+            action: 'continue',
+          },
+          {
+            desc: 'You explore...',
+            options: ['Continue', 'Stop', 'Rest'],
+            action: 'continue',
+          },
+        ],
+      };
+
+      const startSpy = jest
+        .spyOn(appController['appService'], 'start')
+        .mockResolvedValue(mockGame);
+
+      const result = await appController.start({
+        story: 'montpellier-medieval',
+        language: 'en',
+      });
+      expect(result).toEqual(mockGame);
+      expect(startSpy).toHaveBeenCalledWith('montpellier-medieval.md', 'en');
     });
   });
 
@@ -120,6 +205,7 @@ describe('AppController', () => {
       const mockGame = {
         id: 'ABCDEFGH',
         story: 'in-the-forest.md',
+        language: 'fr',
         previously: 'You started in the forest.',
         currentStep: {
           desc: 'You are in the forest...',

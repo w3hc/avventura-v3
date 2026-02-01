@@ -14,6 +14,7 @@ describe('AppController (e2e)', () => {
     start: jest.fn().mockResolvedValue({
       id: 'TESTGAME',
       story: 'in-the-forest.md',
+      language: 'fr',
       previously: 'First step.',
       currentStep: {
         desc: 'You are in the forest...',
@@ -41,6 +42,7 @@ describe('AppController (e2e)', () => {
     getState: jest.fn().mockReturnValue({
       id: 'TESTGAME',
       story: 'in-the-forest.md',
+      language: 'fr',
       previously: 'You started in the forest.',
       currentStep: {
         desc: 'You are in the forest...',
@@ -140,6 +142,35 @@ describe('AppController (e2e)', () => {
     return request(app.getHttpServer())
       .post('/start')
       .send({ story: 'montpellier-medieval' })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body).toHaveProperty('id');
+        expect(res.body).toHaveProperty('story');
+        expect(res.body).toHaveProperty('previously');
+        expect(res.body).toHaveProperty('currentStep');
+        expect(res.body).toHaveProperty('nextSteps');
+      });
+  });
+
+  it('/start (POST) - with custom language', () => {
+    return request(app.getHttpServer())
+      .post('/start')
+      .send({ language: 'es' })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body).toHaveProperty('id');
+        expect(res.body).toHaveProperty('story');
+        expect(res.body).toHaveProperty('previously');
+        expect(res.body).toHaveProperty('currentStep');
+        expect(res.body).toHaveProperty('nextSteps');
+        expect((res.body as { story: string }).story).toBe('in-the-forest.md');
+      });
+  });
+
+  it('/start (POST) - with custom story and language', () => {
+    return request(app.getHttpServer())
+      .post('/start')
+      .send({ story: 'montpellier-medieval', language: 'en' })
       .expect(201)
       .expect((res) => {
         expect(res.body).toHaveProperty('id');

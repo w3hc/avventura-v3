@@ -21,6 +21,11 @@ interface ChatCompletionResponse {
       content: string;
     };
   }[];
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 interface Message {
@@ -47,11 +52,23 @@ export interface ModelsResponse {
   data: unknown[];
 }
 
+interface CostEntry {
+  gameId: string;
+  timestamp: string;
+  costEuro: number;
+}
+
+interface CostsData {
+  requests: CostEntry[];
+  total: number;
+}
+
 @Injectable()
 export class AppService implements OnModuleInit {
   private readonly logger = new Logger(AppService.name);
   private readonly baseUrl = `https://api.infomaniak.com/1/ai/${process.env.INFOMANIAK_PRODUCT_ID}/openai/chat/completions`;
   private readonly gamesDir = join(process.cwd(), 'games');
+  private readonly costsFilePath = join(process.cwd(), 'costs.json');
 
   onModuleInit() {
     if (!existsSync(this.gamesDir)) {
@@ -68,6 +85,52 @@ export class AppService implements OnModuleInit {
       id += chars[bytes[i] % chars.length];
     }
     return id;
+  }
+
+  private readCosts(): CostsData {
+    try {
+      if (!existsSync(this.costsFilePath)) {
+        return { requests: [], total: 0 };
+      }
+      const data = readFileSync(this.costsFilePath, 'utf-8');
+      return JSON.parse(data) as CostsData;
+    } catch (error) {
+      this.logger.error(
+        `Failed to read costs file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return { requests: [], total: 0 };
+    }
+  }
+
+  // based on https://www.infomaniak.com/en/hosting/ai-services/prices
+  private writeCost(gameId: string, costEuro: number): void {
+    try {
+      const costsData = this.readCosts();
+      const roundedCost = parseFloat(costEuro.toFixed(5));
+      const newEntry: CostEntry = {
+        gameId,
+        timestamp: new Date().toISOString(),
+        costEuro: roundedCost,
+      };
+      costsData.requests.push(newEntry);
+      costsData.total = parseFloat(
+        costsData.requests
+          .reduce((sum, entry) => sum + entry.costEuro, 0)
+          .toFixed(5),
+      );
+      writeFileSync(
+        this.costsFilePath,
+        JSON.stringify(costsData, null, 2),
+        'utf-8',
+      );
+      this.logger.debug(
+        `Cost entry written: ${gameId} - €${roundedCost.toFixed(5)}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to write cost entry: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
   }
 
   private readGame(gameId: string): Game | null {
@@ -235,6 +298,20 @@ Generate the initial state of the adventure as a JSON response with:
 
       const data = (await response.json()) as ChatCompletionResponse;
 
+      let totalCost = 0;
+      if (data.usage) {
+        const inputCost = (data.usage.prompt_tokens / 1_000_000) * 0.1;
+        const outputCost = (data.usage.completion_tokens / 1_000_000) * 0.3;
+        totalCost = inputCost + outputCost;
+
+        this.logger.log(
+          `API Usage - Prompt tokens: ${data.usage.prompt_tokens}, ` +
+            `Completion tokens: ${data.usage.completion_tokens}, ` +
+            `Total tokens: ${data.usage.total_tokens} | ` +
+            `Cost: €${totalCost.toFixed(6)} (Input: €${inputCost.toFixed(6)}, Output: €${outputCost.toFixed(6)})`,
+        );
+      }
+
       if (!data.choices || data.choices.length === 0) {
         this.logger.error('Invalid API response: no choices returned', 'start');
         throw new HttpException(
@@ -295,6 +372,7 @@ Generate the initial state of the adventure as a JSON response with:
       };
 
       this.writeGame(newGame);
+      this.writeCost(newGame.id, totalCost);
 
       this.logger.log(`Created new game with ID: ${newGame.id}`);
       return newGame;
@@ -448,7 +526,7 @@ ${newCurrentStep.options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')}
 
 ## Your Task
 Generate ONLY two fields:
-1. A "previously" field: Update the story recap by combining the previous recap ("${game.previously}") with what just happened (the player chose "${game.currentStep.options[choiceIndex]}" and the outcome was: "${newCurrentStep.desc}"). Keep it to 2-3 sentences summarizing the journey so far.
+1. A "previously" field: Update the story recap by combining the previous recap ("${game.previously}") with what just happened (the player chose "${game.currentStep.options[choiceIndex]}" and the outcome was: "${newCurrentStep.desc}"). It must summarize the journey so far. The "previously" field MUST contain a maximum of 3000 characters (including spaces and punctuation).
 2. A "nextSteps" field: An array of 3 possible future scenarios, one for each of the current options (${newCurrentStep.options.join(', ')}). Each scenario describes what will happen if that option is chosen.
 
 **Response Format (ONLY JSON, no markdown):**
@@ -542,6 +620,20 @@ Generate ONLY two fields:
 
       const data = (await response.json()) as ChatCompletionResponse;
 
+      let totalCost = 0;
+      if (data.usage) {
+        const inputCost = (data.usage.prompt_tokens / 1_000_000) * 0.1;
+        const outputCost = (data.usage.completion_tokens / 1_000_000) * 0.3;
+        totalCost = inputCost + outputCost;
+
+        this.logger.log(
+          `API Usage - Prompt tokens: ${data.usage.prompt_tokens}, ` +
+            `Completion tokens: ${data.usage.completion_tokens}, ` +
+            `Total tokens: ${data.usage.total_tokens} | ` +
+            `Cost: €${totalCost.toFixed(6)} (Input: €${inputCost.toFixed(6)}, Output: €${outputCost.toFixed(6)})`,
+        );
+      }
+
       if (!data.choices || data.choices.length === 0) {
         this.logger.error('Invalid API response: no choices returned', 'move');
         throw new HttpException(
@@ -603,6 +695,7 @@ Generate ONLY two fields:
         newCurrentStep,
         aiResponse.nextSteps,
       );
+      this.writeCost(gameId, totalCost);
 
       return {
         previously: aiResponse.previously,

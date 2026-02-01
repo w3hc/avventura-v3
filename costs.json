@@ -1,0 +1,25 @@
+{
+  "requests": [
+    {
+      "gameId": "GFUELENQ",
+      "timestamp": "2026-02-01T11:09:56.979Z",
+      "costEuro": 0.00041
+    },
+    {
+      "gameId": "GFUELENQ",
+      "timestamp": "2026-02-01T11:10:23.515Z",
+      "costEuro": 0.00046
+    },
+    {
+      "gameId": "GFUELENQ",
+      "timestamp": "2026-02-01T11:12:57.234Z",
+      "costEuro": 0.00048
+    },
+    {
+      "gameId": "GFUELENQ",
+      "timestamp": "2026-02-01T11:14:07.399Z",
+      "costEuro": 0.00054
+    }
+  ],
+  "total": 0.00189
+}

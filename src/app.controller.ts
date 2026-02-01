@@ -29,12 +29,12 @@ class StartDto {
 }
 
 class MoveDto {
-  @ApiProperty({ description: 'The game ID' })
+  @ApiProperty({ description: 'The game ID', default: 'GFUELENQ' })
   @IsString()
   @IsNotEmpty()
   gameId: string;
 
-  @ApiProperty({ description: 'The index of the chosen option (1-3)' })
+  @ApiProperty({ description: 'The index of the chosen option (1-3)', default: 1 })
   @IsNumber()
   choiceIndex: number;
 }

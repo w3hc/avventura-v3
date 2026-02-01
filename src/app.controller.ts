@@ -26,6 +26,15 @@ class StartDto {
   @IsString()
   @IsNotEmpty()
   story?: string;
+
+  @ApiProperty({
+    description:
+      'ISO 639-1 language code (e.g., "en", "es", "fr", "zh", "hi", "ar", "bn", "ru", "pt", "ur")',
+    required: false,
+    default: 'fr',
+  })
+  @IsString()
+  language?: string;
 }
 
 class MoveDto {
@@ -79,7 +88,8 @@ export class AppController {
   async start(@Body() body?: StartDto): Promise<Game> {
     this.logger.log('POST /start endpoint called');
     const storyFile = body?.story ? `${body.story}.md` : 'in-the-forest.md';
-    return this.appService.start(storyFile);
+    const language = body?.language?.trim() || 'fr';
+    return this.appService.start(storyFile, language);
   }
 
   @Post('state')

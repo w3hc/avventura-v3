@@ -1,5 +1,17 @@
-import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
-import { readFileSync, writeFileSync } from 'fs';
+import {
+  Injectable,
+  Logger,
+  HttpException,
+  HttpStatus,
+  OnModuleInit,
+} from '@nestjs/common';
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  mkdirSync,
+} from 'fs';
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 
@@ -9,6 +21,11 @@ interface ChatCompletionResponse {
       content: string;
     };
   }[];
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
 }
 
 interface Message {
@@ -35,11 +52,30 @@ export interface ModelsResponse {
   data: unknown[];
 }
 
+interface CostEntry {
+  gameId: string;
+  timestamp: string;
+  costEuro: number;
+}
+
+interface CostsData {
+  requests: CostEntry[];
+  total: number;
+}
+
 @Injectable()
-export class AppService {
+export class AppService implements OnModuleInit {
   private readonly logger = new Logger(AppService.name);
   private readonly baseUrl = `https://api.infomaniak.com/1/ai/${process.env.INFOMANIAK_PRODUCT_ID}/openai/chat/completions`;
-  private readonly gamesPath = join(process.cwd(), 'games.json');
+  private readonly gamesDir = join(process.cwd(), 'games');
+  private readonly costsFilePath = join(process.cwd(), 'costs.json');
+
+  onModuleInit() {
+    if (!existsSync(this.gamesDir)) {
+      this.logger.log('games directory not found, creating it');
+      mkdirSync(this.gamesDir, { recursive: true });
+    }
+  }
 
   private generateGameId(): string {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -51,24 +87,92 @@ export class AppService {
     return id;
   }
 
-  private readGames(): Game[] {
+  private readCosts(): CostsData {
     try {
-      const data = readFileSync(this.gamesPath, 'utf-8');
-      return JSON.parse(data) as Game[];
+      if (!existsSync(this.costsFilePath)) {
+        return { requests: [], total: 0 };
+      }
+      const data = readFileSync(this.costsFilePath, 'utf-8');
+      return JSON.parse(data) as CostsData;
     } catch (error) {
       this.logger.error(
-        `Failed to read games.json: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to read costs file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return { requests: [], total: 0 };
+    }
+  }
+
+  // based on https://www.infomaniak.com/en/hosting/ai-services/prices
+  private writeCost(gameId: string, costEuro: number): void {
+    try {
+      const costsData = this.readCosts();
+      const roundedCost = parseFloat(costEuro.toFixed(5));
+      const newEntry: CostEntry = {
+        gameId,
+        timestamp: new Date().toISOString(),
+        costEuro: roundedCost,
+      };
+      costsData.requests.push(newEntry);
+      costsData.total = parseFloat(
+        costsData.requests
+          .reduce((sum, entry) => sum + entry.costEuro, 0)
+          .toFixed(5),
+      );
+      writeFileSync(
+        this.costsFilePath,
+        JSON.stringify(costsData, null, 2),
+        'utf-8',
+      );
+      this.logger.debug(
+        `Cost entry written: ${gameId} - €${roundedCost.toFixed(5)}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to write cost entry: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
+  private readGame(gameId: string): Game | null {
+    try {
+      const gamePath = join(this.gamesDir, `${gameId}.json`);
+      if (!existsSync(gamePath)) {
+        return null;
+      }
+      const data = readFileSync(gamePath, 'utf-8');
+      return JSON.parse(data) as Game;
+    } catch (error) {
+      this.logger.error(
+        `Failed to read game ${gameId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return null;
+    }
+  }
+
+  private getAllGameIds(): string[] {
+    try {
+      if (!existsSync(this.gamesDir)) {
+        return [];
+      }
+      const files = readdirSync(this.gamesDir);
+      return files
+        .filter((file) => file.endsWith('.json'))
+        .map((file) => file.replace('.json', ''));
+    } catch (error) {
+      this.logger.error(
+        `Failed to read games directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       return [];
     }
   }
 
-  private writeGames(games: Game[]): void {
+  private writeGame(game: Game): void {
     try {
-      writeFileSync(this.gamesPath, JSON.stringify(games, null, 2), 'utf-8');
+      const gamePath = join(this.gamesDir, `${game.id}.json`);
+      writeFileSync(gamePath, JSON.stringify(game, null, 4), 'utf-8');
     } catch (error) {
       this.logger.error(
-        `Failed to write games.json: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to write game ${game.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       throw new HttpException(
         'Failed to save game data',
@@ -136,6 +240,15 @@ Generate the initial state of the adventure as a JSON response with:
 - ALL text (descriptions, options, dialogue) must be in French
 - Maintain cultural authenticity while making it accessible to French speakers
 
+**PATH DIVERGENCE REQUIREMENTS:**
+- Each of the 3 paths MUST be EXTREMELY DIFFERENT from each other
+- Different settings/locations: Each path should take place in different locations or environments
+- Different characters: Each path should introduce unique NPCs that don't appear in other paths
+- Different themes/tones: Each path should have a distinct emotional tone (adventure vs. danger vs. mystery vs. diplomacy, etc.)
+- Mutually exclusive events: Choosing one path should lock out the events/opportunities from other paths
+- Different consequences: Each path leads to fundamentally different outcomes, not just variations
+- Different skills/resources: Each path should involve different abilities, tools, or knowledge
+
 **IMPORTANT:**
 - Return ONLY the JSON object, no markdown code blocks
 - Each nextStep should meaningfully correspond to its option in currentStep
@@ -184,6 +297,20 @@ Generate the initial state of the adventure as a JSON response with:
       }
 
       const data = (await response.json()) as ChatCompletionResponse;
+
+      let totalCost = 0;
+      if (data.usage) {
+        const inputCost = (data.usage.prompt_tokens / 1_000_000) * 0.1;
+        const outputCost = (data.usage.completion_tokens / 1_000_000) * 0.3;
+        totalCost = inputCost + outputCost;
+
+        this.logger.log(
+          `API Usage - Prompt tokens: ${data.usage.prompt_tokens}, ` +
+            `Completion tokens: ${data.usage.completion_tokens}, ` +
+            `Total tokens: ${data.usage.total_tokens} | ` +
+            `Cost: €${totalCost.toFixed(6)} (Input: €${inputCost.toFixed(6)}, Output: €${outputCost.toFixed(6)})`,
+        );
+      }
 
       if (!data.choices || data.choices.length === 0) {
         this.logger.error('Invalid API response: no choices returned', 'start');
@@ -244,9 +371,8 @@ Generate the initial state of the adventure as a JSON response with:
         nextSteps: aiResponse.nextSteps,
       };
 
-      const games = this.readGames();
-      games.push(newGame);
-      this.writeGames(games);
+      this.writeGame(newGame);
+      this.writeCost(newGame.id, totalCost);
 
       this.logger.log(`Created new game with ID: ${newGame.id}`);
       return newGame;
@@ -266,8 +392,7 @@ Generate the initial state of the adventure as a JSON response with:
   }
 
   private getGame(gameId: string): Game {
-    const games = this.readGames();
-    const game = games.find((g) => g.id === gameId);
+    const game = this.readGame(gameId);
 
     if (!game) {
       this.logger.warn(`Game not found: ${gameId}`);
@@ -283,17 +408,16 @@ Generate the initial state of the adventure as a JSON response with:
     currentStep: Step,
     nextSteps: Step[],
   ): void {
-    const games = this.readGames();
-    const gameIndex = games.findIndex((g) => g.id === gameId);
+    const game = this.readGame(gameId);
 
-    if (gameIndex === -1) {
+    if (!game) {
       throw new HttpException('Game not found', HttpStatus.NOT_FOUND);
     }
 
-    games[gameIndex].previously = previously;
-    games[gameIndex].currentStep = currentStep;
-    games[gameIndex].nextSteps = nextSteps;
-    this.writeGames(games);
+    game.previously = previously;
+    game.currentStep = currentStep;
+    game.nextSteps = nextSteps;
+    this.writeGame(game);
     this.logger.log(`Updated game state for ID: ${gameId}`);
   }
 
@@ -402,7 +526,7 @@ ${newCurrentStep.options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')}
 
 ## Your Task
 Generate ONLY two fields:
-1. A "previously" field: Update the story recap by combining the previous recap ("${game.previously}") with what just happened (the player chose "${game.currentStep.options[choiceIndex]}" and the outcome was: "${newCurrentStep.desc}"). Keep it to 2-3 sentences summarizing the journey so far.
+1. A "previously" field: Update the story recap by combining the previous recap ("${game.previously}") with what just happened (the player chose "${game.currentStep.options[choiceIndex]}" and the outcome was: "${newCurrentStep.desc}"). It must summarize the journey so far. The "previously" field MUST contain a maximum of 3000 characters (including spaces and punctuation).
 2. A "nextSteps" field: An array of 3 possible future scenarios, one for each of the current options (${newCurrentStep.options.join(', ')}). Each scenario describes what will happen if that option is chosen.
 
 **Response Format (ONLY JSON, no markdown):**
@@ -432,11 +556,23 @@ Generate ONLY two fields:
 - ALL text (descriptions, options, dialogue) must be in French
 - Maintain cultural authenticity while making it accessible to French speakers
 
+**PATH DIVERGENCE REQUIREMENTS:**
+- Each of the 3 paths MUST be EXTREMELY DIFFERENT from each other
+- Different settings/locations: Each path should take place in different locations or environments
+- Different characters: Each path should introduce unique NPCs that don't appear in other paths
+- Different themes/tones: Each path should have a distinct emotional tone (adventure vs. danger vs. mystery vs. diplomacy, etc.)
+- Mutually exclusive events: Choosing one path should lock out the events/opportunities from other paths
+- Different consequences: Each path leads to fundamentally different outcomes, not just variations
+- Different skills/resources: Each path should involve different abilities, tools, or knowledge
+- Ensure paths remain distinct throughout the story, not converging back together
+
 **IMPORTANT:**
 - Return ONLY the JSON object with "previously" and "nextSteps" fields - DO NOT include "currentStep"
 - No markdown code blocks
 - The "previously" field MUST incorporate both the old recap AND the new events
-- Keep the story progressive and avoid repetition
+- Keep the story progressive and NEVER repeat situations or scenarios from the previously recap
+- Each new scenario must introduce NEW elements, locations, characters, or events
+- Review the previously recap carefully and ensure all new content is fresh and different
 - Each nextStep must meaningfully correspond to the option it represents
 - Set action to "milestone" for significant story points, "continue" otherwise`;
 
@@ -483,6 +619,20 @@ Generate ONLY two fields:
       }
 
       const data = (await response.json()) as ChatCompletionResponse;
+
+      let totalCost = 0;
+      if (data.usage) {
+        const inputCost = (data.usage.prompt_tokens / 1_000_000) * 0.1;
+        const outputCost = (data.usage.completion_tokens / 1_000_000) * 0.3;
+        totalCost = inputCost + outputCost;
+
+        this.logger.log(
+          `API Usage - Prompt tokens: ${data.usage.prompt_tokens}, ` +
+            `Completion tokens: ${data.usage.completion_tokens}, ` +
+            `Total tokens: ${data.usage.total_tokens} | ` +
+            `Cost: €${totalCost.toFixed(6)} (Input: €${inputCost.toFixed(6)}, Output: €${outputCost.toFixed(6)})`,
+        );
+      }
 
       if (!data.choices || data.choices.length === 0) {
         this.logger.error('Invalid API response: no choices returned', 'move');
@@ -545,6 +695,7 @@ Generate ONLY two fields:
         newCurrentStep,
         aiResponse.nextSteps,
       );
+      this.writeCost(gameId, totalCost);
 
       return {
         previously: aiResponse.previously,

@@ -34,9 +34,19 @@ class MoveDto {
   @IsNotEmpty()
   gameId: string;
 
-  @ApiProperty({ description: 'The index of the chosen option (1-3)', default: 1 })
+  @ApiProperty({
+    description: 'The index of the chosen option (1-3)',
+    default: 1,
+  })
   @IsNumber()
   choiceIndex: number;
+}
+
+class GetStateDto {
+  @ApiProperty({ description: 'The game ID', default: 'GFUELENQ' })
+  @IsString()
+  @IsNotEmpty()
+  gameId: string;
 }
 
 @Controller()
@@ -70,6 +80,23 @@ export class AppController {
     this.logger.log('POST /start endpoint called');
     const storyFile = body?.story ? `${body.story}.md` : 'in-the-forest.md';
     return this.appService.start(storyFile);
+  }
+
+  @Post('state')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Get the full state of a game',
+  })
+  @ApiBody({ type: GetStateDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Full game state returned successfully',
+  })
+  @ApiResponse({ status: 404, description: 'Game not found' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  getState(@Body() body: GetStateDto): Game {
+    this.logger.log('POST /state endpoint called');
+    return this.appService.getState(body.gameId);
   }
 
   @Post('move')

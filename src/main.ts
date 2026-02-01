@@ -39,13 +39,11 @@ async function bootstrap() {
     .addTag('AI', 'AI-related endpoints')
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api', app, document);
+  SwaggerModule.setup('', app, document);
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
   logger.log(`Application is running on: http://localhost:${port}`);
-  logger.log(
-    `Swagger documentation available at: http://localhost:${port}/api`,
-  );
+  logger.log(`Swagger documentation available at: http://localhost:${port}`);
 }
 void bootstrap();

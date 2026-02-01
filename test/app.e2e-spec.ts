@@ -38,6 +38,33 @@ describe('AppController (e2e)', () => {
         },
       ],
     }),
+    getState: jest.fn().mockReturnValue({
+      id: 'TESTGAME',
+      story: 'in-the-forest.md',
+      previously: 'You started in the forest.',
+      currentStep: {
+        desc: 'You are in the forest...',
+        options: ['Go left', 'Go right', 'Go back'],
+        action: 'start',
+      },
+      nextSteps: [
+        {
+          desc: 'You go left...',
+          options: ['Continue', 'Stop', 'Turn back'],
+          action: 'continue',
+        },
+        {
+          desc: 'You go right...',
+          options: ['Continue', 'Stop', 'Turn back'],
+          action: 'continue',
+        },
+        {
+          desc: 'You go back...',
+          options: ['Continue', 'Stop', 'Turn back'],
+          action: 'continue',
+        },
+      ],
+    }),
     move: jest.fn().mockResolvedValue({
       previously: 'You started in the forest. You chose to go left.',
       currentStep: {
@@ -98,9 +125,7 @@ describe('AppController (e2e)', () => {
         expect(res.body).toHaveProperty('previously');
         expect(res.body).toHaveProperty('currentStep');
         expect(res.body).toHaveProperty('nextSteps');
-        expect((res.body as { story: string }).story).toBe(
-          'in-the-forest.md',
-        );
+        expect((res.body as { story: string }).story).toBe('in-the-forest.md');
         expect(
           (res.body as { currentStep: { options: string[] } }).currentStep
             .options,
@@ -122,6 +147,29 @@ describe('AppController (e2e)', () => {
         expect(res.body).toHaveProperty('previously');
         expect(res.body).toHaveProperty('currentStep');
         expect(res.body).toHaveProperty('nextSteps');
+      });
+  });
+
+  it('/state (POST)', () => {
+    return request(app.getHttpServer())
+      .post('/state')
+      .send({ gameId: 'TESTGAME' })
+      .expect(200)
+      .expect((res) => {
+        expect(res.body).toHaveProperty('id');
+        expect(res.body).toHaveProperty('story');
+        expect(res.body).toHaveProperty('previously');
+        expect(res.body).toHaveProperty('currentStep');
+        expect(res.body).toHaveProperty('nextSteps');
+        expect((res.body as { id: string }).id).toBe('TESTGAME');
+        expect((res.body as { story: string }).story).toBe('in-the-forest.md');
+        expect(
+          (res.body as { currentStep: { options: string[] } }).currentStep
+            .options,
+        ).toHaveLength(3);
+        expect((res.body as { nextSteps: unknown[] }).nextSteps).toHaveLength(
+          3,
+        );
       });
   });
 

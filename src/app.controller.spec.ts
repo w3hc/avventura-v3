@@ -115,6 +115,46 @@ describe('AppController', () => {
     });
   });
 
+  describe('getState', () => {
+    it('should return full game state for existing game', () => {
+      const mockGame = {
+        id: 'ABCDEFGH',
+        story: 'in-the-forest.md',
+        previously: 'You started in the forest.',
+        currentStep: {
+          desc: 'You are in the forest...',
+          options: ['Go left', 'Go right', 'Go back'],
+          action: 'start',
+        },
+        nextSteps: [
+          {
+            desc: 'You go left...',
+            options: ['Continue', 'Stop', 'Turn back'],
+            action: 'continue',
+          },
+          {
+            desc: 'You go right...',
+            options: ['Continue', 'Stop', 'Turn back'],
+            action: 'continue',
+          },
+          {
+            desc: 'You go back...',
+            options: ['Continue', 'Stop', 'Turn back'],
+            action: 'continue',
+          },
+        ],
+      };
+
+      const getStateSpy = jest
+        .spyOn(appController['appService'], 'getState')
+        .mockReturnValue(mockGame);
+
+      const result = appController.getState({ gameId: 'ABCDEFGH' });
+      expect(result).toEqual(mockGame);
+      expect(getStateSpy).toHaveBeenCalledWith('ABCDEFGH');
+    });
+  });
+
   describe('move', () => {
     it('should return updated game state for a valid move', async () => {
       const mockGameId = 'ABCDEFGH';

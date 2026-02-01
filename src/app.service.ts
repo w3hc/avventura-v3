@@ -465,6 +465,11 @@ Generate the initial state of the adventure as a JSON response with:
     }
   }
 
+  getState(gameId: string): Game {
+    this.logger.log(`Fetching state for game ${gameId}`);
+    return this.getGame(gameId);
+  }
+
   async move(
     gameId: string,
     choiceIndex: number,

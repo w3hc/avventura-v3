@@ -64,6 +64,13 @@ interface CostsData {
   total: number;
 }
 
+interface StoryData {
+  slug: string;
+  title: string;
+  content: string;
+  homepage_display: unknown;
+}
+
 @Injectable()
 export class AppService implements OnModuleInit {
   private readonly logger = new Logger(AppService.name);
@@ -208,8 +215,10 @@ export class AppService implements OnModuleInit {
     let storyContent = '';
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
-      const storiesData = JSON.parse(readFileSync(storiesPath, 'utf-8'));
-      const storyObj = storiesData.find((s: any) => s.slug === story);
+      const storiesData = JSON.parse(
+        readFileSync(storiesPath, 'utf-8'),
+      ) as StoryData[];
+      const storyObj = storiesData.find((s) => s.slug === story);
 
       if (!storyObj) {
         throw new Error(`Story with slug "${story}" not found`);
@@ -505,12 +514,14 @@ Generate the initial state of the adventure as a JSON response with:
     return this.getGame(gameId);
   }
 
-  getStories(): { slug: string; title: string; homepage_display: any }[] {
+  getStories(): { slug: string; title: string; homepage_display: unknown }[] {
     this.logger.log('Fetching all stories');
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
-      const storiesData = JSON.parse(readFileSync(storiesPath, 'utf-8'));
-      return storiesData.map((story: any) => ({
+      const storiesData = JSON.parse(
+        readFileSync(storiesPath, 'utf-8'),
+      ) as StoryData[];
+      return storiesData.map((story) => ({
         slug: story.slug,
         title: story.title,
         homepage_display: story.homepage_display,
@@ -557,8 +568,10 @@ Generate the initial state of the adventure as a JSON response with:
     let storyContent = '';
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
-      const storiesData = JSON.parse(readFileSync(storiesPath, 'utf-8'));
-      const storyObj = storiesData.find((s: any) => s.slug === game.story);
+      const storiesData = JSON.parse(
+        readFileSync(storiesPath, 'utf-8'),
+      ) as StoryData[];
+      const storyObj = storiesData.find((s) => s.slug === game.story);
 
       if (!storyObj) {
         throw new Error(`Story with slug "${game.story}" not found`);

@@ -18,8 +18,7 @@ import { AppService, Game, Step } from './app.service';
 
 class StartDto {
   @ApiProperty({
-    description:
-      'The story slug (e.g., "montpellier", "forest", "sailing")',
+    description: 'The story slug (e.g., "montpellier", "forest", "sailing")',
     required: false,
     default: 'montpellier',
   })
@@ -75,7 +74,9 @@ export class AppController {
   }
 
   @Get('stories')
-  @ApiOperation({ summary: 'Get all stories with slug, title, and homepage_display' })
+  @ApiOperation({
+    summary: 'Get all stories with slug, title, and homepage_display',
+  })
   @ApiResponse({
     status: 200,
     description: 'List of all stories with their basic information',

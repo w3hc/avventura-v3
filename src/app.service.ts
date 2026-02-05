@@ -286,7 +286,13 @@ Generate the initial state of the adventure as a JSON response with:
     ];
 
     try {
+      const totalPromptChars = messages.reduce(
+        (sum, msg) => sum + msg.content.length,
+        0,
+      );
       this.logger.debug(`Calling Infomaniak API: ${this.baseUrl}`);
+      this.logger.debug(`Total prompt characters: ${totalPromptChars}`);
+      this.logger.debug(`Full prompt:\n${JSON.stringify(messages, null, 2)}`);
 
       const response = await fetch(this.baseUrl, {
         method: 'POST',
@@ -535,8 +541,7 @@ Generate the initial state of the adventure as a JSON response with:
       );
     }
 
-    const systemPrompt = `# INSTRUCTIONS FOR THE MULTILINGUAL ADVENTURE
-
+    const systemPrompt = `# STORY INSTRUCTIONS
 ${storyContent}
 
 ## Story Recap
@@ -616,7 +621,13 @@ Generate ONLY two fields:
     ];
 
     try {
+      const totalPromptChars = messages.reduce(
+        (sum, msg) => sum + msg.content.length,
+        0,
+      );
       this.logger.debug(`Calling Infomaniak API: ${this.baseUrl}`);
+      this.logger.debug(`Total prompt characters: ${totalPromptChars}`);
+      this.logger.debug(`Full prompt:\n${JSON.stringify(messages, null, 2)}`);
 
       const response = await fetch(this.baseUrl, {
         method: 'POST',

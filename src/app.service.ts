@@ -199,16 +199,23 @@ export class AppService implements OnModuleInit {
   }
 
   async start(
-    story: string = 'in-the-forest.md',
+    story: string = 'montpellier',
     language: string = 'fr',
   ): Promise<Game> {
     this.logger.log(`Starting new game with story: ${story}`);
 
-    // Load story content
+    // Load story content from stories.json
     let storyContent = '';
     try {
-      const storyPath = join(process.cwd(), 'stories', story);
-      storyContent = readFileSync(storyPath, 'utf-8');
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      const storiesData = JSON.parse(readFileSync(storiesPath, 'utf-8'));
+      const storyObj = storiesData.find((s: any) => s.slug === story);
+
+      if (!storyObj) {
+        throw new Error(`Story with slug "${story}" not found`);
+      }
+
+      storyContent = storyObj.content;
       this.logger.log(`Story content loaded from ${story}`);
     } catch (error) {
       this.logger.error(
@@ -498,6 +505,27 @@ Generate the initial state of the adventure as a JSON response with:
     return this.getGame(gameId);
   }
 
+  getStories(): { slug: string; title: string; homepage_display: any }[] {
+    this.logger.log('Fetching all stories');
+    try {
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      const storiesData = JSON.parse(readFileSync(storiesPath, 'utf-8'));
+      return storiesData.map((story: any) => ({
+        slug: story.slug,
+        title: story.title,
+        homepage_display: story.homepage_display,
+      }));
+    } catch (error) {
+      this.logger.error(
+        `Failed to load stories: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new HttpException(
+        'Failed to load stories',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   async move(
     gameId: string,
     choiceIndex: number,
@@ -525,11 +553,18 @@ Generate the initial state of the adventure as a JSON response with:
         ? game.nextSteps[choiceIndex]
         : game.currentStep;
 
-    // Load story content
+    // Load story content from stories.json
     let storyContent = '';
     try {
-      const storyPath = join(process.cwd(), 'stories', game.story);
-      storyContent = readFileSync(storyPath, 'utf-8');
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      const storiesData = JSON.parse(readFileSync(storiesPath, 'utf-8'));
+      const storyObj = storiesData.find((s: any) => s.slug === game.story);
+
+      if (!storyObj) {
+        throw new Error(`Story with slug "${game.story}" not found`);
+      }
+
+      storyContent = storyObj.content;
       this.logger.log(`Story content loaded from ${game.story}`);
     } catch (error) {
       this.logger.error(

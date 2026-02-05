@@ -64,6 +64,14 @@ interface CostsData {
   total: number;
 }
 
+interface StoryData {
+  slug: string;
+  title: string;
+  content: string;
+  homepage_display: unknown;
+  is_active: boolean;
+}
+
 @Injectable()
 export class AppService implements OnModuleInit {
   private readonly logger = new Logger(AppService.name);
@@ -199,16 +207,25 @@ export class AppService implements OnModuleInit {
   }
 
   async start(
-    story: string = 'in-the-forest.md',
+    story: string = 'montpellier',
     language: string = 'fr',
   ): Promise<Game> {
     this.logger.log(`Starting new game with story: ${story}`);
 
-    // Load story content
+    // Load story content from stories.json
     let storyContent = '';
     try {
-      const storyPath = join(process.cwd(), 'stories', story);
-      storyContent = readFileSync(storyPath, 'utf-8');
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      const storiesData = JSON.parse(
+        readFileSync(storiesPath, 'utf-8'),
+      ) as StoryData[];
+      const storyObj = storiesData.find((s) => s.slug === story);
+
+      if (!storyObj) {
+        throw new Error(`Story with slug "${story}" not found`);
+      }
+
+      storyContent = storyObj.content;
       this.logger.log(`Story content loaded from ${story}`);
     } catch (error) {
       this.logger.error(
@@ -286,7 +303,13 @@ Generate the initial state of the adventure as a JSON response with:
     ];
 
     try {
+      const totalPromptChars = messages.reduce(
+        (sum, msg) => sum + msg.content.length,
+        0,
+      );
       this.logger.debug(`Calling Infomaniak API: ${this.baseUrl}`);
+      this.logger.debug(`Total prompt characters: ${totalPromptChars}`);
+      this.logger.debug(`Full prompt:\n${JSON.stringify(messages, null, 2)}`);
 
       const response = await fetch(this.baseUrl, {
         method: 'POST',
@@ -492,6 +515,31 @@ Generate the initial state of the adventure as a JSON response with:
     return this.getGame(gameId);
   }
 
+  getStories(): { slug: string; title: string; homepage_display: unknown }[] {
+    this.logger.log('Fetching all stories');
+    try {
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      const storiesData = JSON.parse(
+        readFileSync(storiesPath, 'utf-8'),
+      ) as StoryData[];
+      return storiesData
+        .filter((story) => story.is_active === true)
+        .map((story) => ({
+          slug: story.slug,
+          title: story.title,
+          homepage_display: story.homepage_display,
+        }));
+    } catch (error) {
+      this.logger.error(
+        `Failed to load stories: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new HttpException(
+        'Failed to load stories',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   async move(
     gameId: string,
     choiceIndex: number,
@@ -519,11 +567,20 @@ Generate the initial state of the adventure as a JSON response with:
         ? game.nextSteps[choiceIndex]
         : game.currentStep;
 
-    // Load story content
+    // Load story content from stories.json
     let storyContent = '';
     try {
-      const storyPath = join(process.cwd(), 'stories', game.story);
-      storyContent = readFileSync(storyPath, 'utf-8');
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      const storiesData = JSON.parse(
+        readFileSync(storiesPath, 'utf-8'),
+      ) as StoryData[];
+      const storyObj = storiesData.find((s) => s.slug === game.story);
+
+      if (!storyObj) {
+        throw new Error(`Story with slug "${game.story}" not found`);
+      }
+
+      storyContent = storyObj.content;
       this.logger.log(`Story content loaded from ${game.story}`);
     } catch (error) {
       this.logger.error(
@@ -535,8 +592,7 @@ Generate the initial state of the adventure as a JSON response with:
       );
     }
 
-    const systemPrompt = `# INSTRUCTIONS FOR THE MULTILINGUAL ADVENTURE
-
+    const systemPrompt = `# STORY INSTRUCTIONS
 ${storyContent}
 
 ## Story Recap
@@ -616,7 +672,13 @@ Generate ONLY two fields:
     ];
 
     try {
+      const totalPromptChars = messages.reduce(
+        (sum, msg) => sum + msg.content.length,
+        0,
+      );
       this.logger.debug(`Calling Infomaniak API: ${this.baseUrl}`);
+      this.logger.debug(`Total prompt characters: ${totalPromptChars}`);
+      this.logger.debug(`Full prompt:\n${JSON.stringify(messages, null, 2)}`);
 
       const response = await fetch(this.baseUrl, {
         method: 'POST',

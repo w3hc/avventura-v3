@@ -18,10 +18,9 @@ import { AppService, Game, Step } from './app.service';
 
 class StartDto {
   @ApiProperty({
-    description:
-      'The story file name without .md extension (e.g., "in-the-forest" or "montpellier-medieval")',
+    description: 'The story slug (e.g., "montpellier", "forest", "sailing")',
     required: false,
-    default: 'in-the-forest',
+    default: 'montpellier',
   })
   @IsString()
   @IsNotEmpty()
@@ -74,6 +73,20 @@ export class AppController {
     return this.appService.getModels();
   }
 
+  @Get('stories')
+  @ApiOperation({
+    summary: 'Get all stories with slug, title, and homepage_display',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'List of all stories with their basic information',
+  })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  getStories() {
+    this.logger.log('GET /stories endpoint called');
+    return this.appService.getStories();
+  }
+
   @Post('start')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -87,9 +100,9 @@ export class AppController {
   @ApiResponse({ status: 500, description: 'Internal server error' })
   async start(@Body() body?: StartDto): Promise<Game> {
     this.logger.log('POST /start endpoint called');
-    const storyFile = body?.story ? `${body.story}.md` : 'in-the-forest.md';
+    const storySlug = body?.story?.trim() || 'montpellier';
     const language = body?.language?.trim() || 'fr';
-    return this.appService.start(storyFile, language);
+    return this.appService.start(storySlug, language);
   }
 
   @Post('state')

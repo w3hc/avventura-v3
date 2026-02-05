@@ -69,6 +69,7 @@ interface StoryData {
   title: string;
   content: string;
   homepage_display: unknown;
+  is_active: boolean;
 }
 
 @Injectable()
@@ -521,11 +522,13 @@ Generate the initial state of the adventure as a JSON response with:
       const storiesData = JSON.parse(
         readFileSync(storiesPath, 'utf-8'),
       ) as StoryData[];
-      return storiesData.map((story) => ({
-        slug: story.slug,
-        title: story.title,
-        homepage_display: story.homepage_display,
-      }));
+      return storiesData
+        .filter((story) => story.is_active === true)
+        .map((story) => ({
+          slug: story.slug,
+          title: story.title,
+          homepage_display: story.homepage_display,
+        }));
     } catch (error) {
       this.logger.error(
         `Failed to load stories: ${error instanceof Error ? error.message : 'Unknown error'}`,

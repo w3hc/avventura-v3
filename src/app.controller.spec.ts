@@ -283,4 +283,84 @@ describe('AppController', () => {
       expect(moveSpy).toHaveBeenCalledWith(mockGameId, mockChoiceIndex - 1);
     });
   });
+
+  describe('createStory', () => {
+    it('should create a new story successfully', async () => {
+      const mockPrompt =
+        'Create an adventure story set in ancient Rome where the player is a gladiator';
+      const mockStory = {
+        slug: 'ancient-rome-gladiator',
+        title: 'Ancient Rome - Gladiator Adventure',
+        content:
+          '# Ancient Rome - Gladiator Adventure\n\n## Setting\n\nYou are a gladiator in ancient Rome...',
+        homepage_display: {
+          en: {
+            title: 'Ancient Rome Gladiator',
+            description: 'Experience life as a gladiator in ancient Rome',
+          },
+          fr: {
+            title: 'Gladiateur de la Rome Antique',
+            description: "Vivez la vie d'un gladiateur dans la Rome antique",
+          },
+          es: {
+            title: 'Gladiador de la Roma Antigua',
+            description:
+              'Experimenta la vida como gladiador en la antigua Roma',
+          },
+          zh: { title: '古罗马角斗士', description: '体验古罗马角斗士的生活' },
+          hi: {
+            title: 'प्राचीन रोम ग्लेडिएटर',
+            description:
+              'प्राचीन रोम में एक ग्लेडिएटर के रूप में जीवन का अनुभव करें',
+          },
+          ar: {
+            title: 'مصارع روما القديمة',
+            description: 'عش حياة المصارع في روما القديمة',
+          },
+          bn: {
+            title: 'প্রাচীন রোম গ্ল্যাডিয়েটর',
+            description:
+              'প্রাচীন রোমে একজন গ্ল্যাডিয়েটর হিসাবে জীবন অনুভব করুন',
+          },
+          ru: {
+            title: 'Гладиатор Древнего Рима',
+            description: 'Испытайте жизнь гладиатора в Древнем Риме',
+          },
+          pt: {
+            title: 'Gladiador da Roma Antiga',
+            description: 'Experimente a vida como gladiador na Roma Antiga',
+          },
+          ur: {
+            title: 'قدیم روم گلیڈی ایٹر',
+            description: 'قدیم روم میں ایک گلیڈی ایٹر کی زندگی کا تجربہ کریں',
+          },
+        },
+        is_active: true,
+        created_at: '2026-05-27T10:00:00.000Z',
+        updated_at: '2026-05-27T10:00:00.000Z',
+        sessions: 0,
+        requests: 0,
+      };
+
+      const createStorySpy = jest
+        .spyOn(appController['appService'], 'createStory')
+        .mockResolvedValue(mockStory);
+
+      const result = await appController.createStory({ prompt: mockPrompt });
+      expect(result).toEqual(mockStory);
+      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt);
+    });
+
+    it('should handle API errors gracefully', async () => {
+      const mockPrompt = 'Invalid prompt that causes error';
+      const createStorySpy = jest
+        .spyOn(appController['appService'], 'createStory')
+        .mockRejectedValue(new Error('Failed to get AI response'));
+
+      await expect(
+        appController.createStory({ prompt: mockPrompt }),
+      ).rejects.toThrow('Failed to get AI response');
+      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt);
+    });
+  });
 });

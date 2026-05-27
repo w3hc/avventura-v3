@@ -64,12 +64,16 @@ interface CostsData {
   total: number;
 }
 
-interface StoryData {
+export interface StoryData {
   slug: string;
   title: string;
   content: string;
   homepage_display: unknown;
   is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  sessions?: number;
+  requests?: number;
 }
 
 @Injectable()
@@ -535,6 +539,190 @@ Generate the initial state of the adventure as a JSON response with:
       );
       throw new HttpException(
         'Failed to load stories',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  async createStory(prompt: string): Promise<StoryData> {
+    this.logger.log(`Creating new story from prompt: ${prompt}`);
+
+    // Read the instruction file
+    let instructions = '';
+    try {
+      const instructionPath =
+        '/Users/ju/rukh/data/contexts/avventura/avventura-edit-instruction-file.md';
+      instructions = readFileSync(instructionPath, 'utf-8');
+      this.logger.log('Loaded story creation instructions');
+    } catch (error) {
+      this.logger.error(
+        `Failed to load instruction file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new HttpException(
+        'Instruction file not found',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ];
+
+    try {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+
+      if (!apiKey) {
+        this.logger.error('ANTHROPIC_API_KEY is not configured');
+        throw new HttpException(
+          'ANTHROPIC_API_KEY is not configured',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      this.logger.debug(`Calling Claude API to create story`);
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-6',
+          max_tokens: 8192,
+          system: instructions,
+          messages,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        this.logger.error(
+          `Claude API error: ${response.status} ${response.statusText} - ${errorBody}`,
+          'createStory',
+        );
+        throw new HttpException(
+          {
+            statusCode: response.status,
+            message: 'Failed to get AI response',
+            error: errorBody,
+          },
+          response.status >= 500 ? HttpStatus.BAD_GATEWAY : response.status,
+        );
+      }
+
+      const data = (await response.json()) as {
+        content: { type: string; text: string }[];
+      };
+
+      if (!data.content || data.content.length === 0) {
+        this.logger.error('Invalid API response: no content returned');
+        throw new HttpException(
+          'Invalid response from AI service',
+          HttpStatus.BAD_GATEWAY,
+        );
+      }
+
+      const assistantMessage = data.content[0]?.text ?? '';
+
+      if (!assistantMessage) {
+        this.logger.warn('Empty assistant message in API response');
+        throw new HttpException(
+          'Empty response from AI service',
+          HttpStatus.BAD_GATEWAY,
+        );
+      }
+
+      this.logger.log(
+        `Successfully received AI response (${assistantMessage.length} chars)`,
+      );
+
+      // Strip markdown code blocks if present
+      let jsonString = assistantMessage.trim();
+      if (jsonString.startsWith('```')) {
+        jsonString = jsonString
+          .replace(/^```(?:json)?\n/, '')
+          .replace(/\n```$/, '');
+      }
+
+      // Parse the AI response
+      let newStory: Omit<StoryData, 'created_at' | 'updated_at' | 'is_active'>;
+      try {
+        newStory = JSON.parse(jsonString) as Omit<
+          StoryData,
+          'created_at' | 'updated_at' | 'is_active'
+        >;
+      } catch (parseError) {
+        this.logger.error(
+          `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
+        );
+        this.logger.debug(`AI response was: ${assistantMessage}`);
+        throw new HttpException(
+          'Invalid JSON response from AI service',
+          HttpStatus.BAD_GATEWAY,
+        );
+      }
+
+      // Read existing stories
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      let stories: StoryData[] = [];
+      try {
+        const storiesData = readFileSync(storiesPath, 'utf-8');
+        stories = JSON.parse(storiesData) as StoryData[];
+      } catch (error) {
+        this.logger.error(
+          `Failed to read stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        throw new HttpException(
+          'Failed to read stories file',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      // Create complete story entry with metadata
+      const completeStory: StoryData = {
+        ...newStory,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_active: true,
+        sessions: 0,
+        requests: 0,
+      };
+
+      // Add the new story to the array
+      stories.push(completeStory);
+
+      // Write back to the file
+      try {
+        writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
+        this.logger.log(
+          `Successfully added story with slug: ${completeStory.slug}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to write stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        throw new HttpException(
+          'Failed to save story',
+          HttpStatus.INTERNAL_SERVER_ERROR,
+        );
+      }
+
+      return completeStory;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      this.logger.error(
+        `Unexpected error in createStory: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      throw new HttpException(
+        'Internal server error while creating story',
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

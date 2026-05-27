@@ -14,7 +14,7 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsNumber } from 'class-validator';
-import { AppService, Game, Step } from './app.service';
+import { AppService, Game, Step, StoryData } from './app.service';
 
 class StartDto {
   @ApiProperty({
@@ -57,6 +57,37 @@ class GetStateDto {
   gameId: string;
 }
 
+class CreateStoryDto {
+  @ApiProperty({
+    description: 'The prompt describing the story to create',
+    example:
+      'Create an adventure story set in ancient Rome where the player is a gladiator',
+  })
+  @IsString()
+  @IsNotEmpty()
+  prompt: string;
+}
+
+class EditStoryDto {
+  @ApiProperty({
+    description: 'The slug of the story to edit',
+    example: 'montpellier',
+  })
+  @IsString()
+  @IsNotEmpty()
+  slug: string;
+
+  @ApiProperty({
+    description: 'The fields to update (partial story data)',
+    required: false,
+    example: {
+      title: 'Updated Title',
+      is_active: false,
+    },
+  })
+  updates: Partial<Omit<StoryData, 'created_at'>>;
+}
+
 @Controller()
 export class AppController {
   private readonly logger = new Logger(AppController.name);
@@ -85,6 +116,42 @@ export class AppController {
   getStories() {
     this.logger.log('GET /stories endpoint called');
     return this.appService.getStories();
+  }
+
+  @Post('stories')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({
+    summary: 'Create a new story using AI',
+  })
+  @ApiBody({ type: CreateStoryDto })
+  @ApiResponse({
+    status: 201,
+    description: 'New story created successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })
+  async createStory(@Body() body: CreateStoryDto): Promise<StoryData> {
+    this.logger.log('POST /stories endpoint called');
+    return this.appService.createStory(body.prompt);
+  }
+
+  @Post('stories/edit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Edit an existing story',
+  })
+  @ApiBody({ type: EditStoryDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Story updated successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
+  @ApiResponse({ status: 404, description: 'Story not found' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  async editStory(@Body() body: EditStoryDto): Promise<StoryData> {
+    this.logger.log('POST /stories/edit endpoint called');
+    return this.appService.editStory(body.slug, body.updates);
   }
 
   @Post('start')

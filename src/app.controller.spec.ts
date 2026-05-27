@@ -283,4 +283,225 @@ describe('AppController', () => {
       expect(moveSpy).toHaveBeenCalledWith(mockGameId, mockChoiceIndex - 1);
     });
   });
+
+  describe('createStory', () => {
+    it('should create a new story successfully', async () => {
+      const mockPrompt =
+        'Create an adventure story set in ancient Rome where the player is a gladiator';
+      const mockStory = {
+        slug: 'ancient-rome-gladiator',
+        title: 'Ancient Rome - Gladiator Adventure',
+        content:
+          '# Ancient Rome - Gladiator Adventure\n\n## Setting\n\nYou are a gladiator in ancient Rome...',
+        homepage_display: {
+          en: {
+            title: 'Ancient Rome Gladiator',
+            description: 'Experience life as a gladiator in ancient Rome',
+          },
+          fr: {
+            title: 'Gladiateur de la Rome Antique',
+            description: "Vivez la vie d'un gladiateur dans la Rome antique",
+          },
+          es: {
+            title: 'Gladiador de la Roma Antigua',
+            description:
+              'Experimenta la vida como gladiador en la antigua Roma',
+          },
+          zh: { title: '古罗马角斗士', description: '体验古罗马角斗士的生活' },
+          hi: {
+            title: 'प्राचीन रोम ग्लेडिएटर',
+            description:
+              'प्राचीन रोम में एक ग्लेडिएटर के रूप में जीवन का अनुभव करें',
+          },
+          ar: {
+            title: 'مصارع روما القديمة',
+            description: 'عش حياة المصارع في روما القديمة',
+          },
+          bn: {
+            title: 'প্রাচীন রোম গ্ল্যাডিয়েটর',
+            description:
+              'প্রাচীন রোমে একজন গ্ল্যাডিয়েটর হিসাবে জীবন অনুভব করুন',
+          },
+          ru: {
+            title: 'Гладиатор Древнего Рима',
+            description: 'Испытайте жизнь гладиатора в Древнем Риме',
+          },
+          pt: {
+            title: 'Gladiador da Roma Antiga',
+            description: 'Experimente a vida como gladiador na Roma Antiga',
+          },
+          ur: {
+            title: 'قدیم روم گلیڈی ایٹر',
+            description: 'قدیم روم میں ایک گلیڈی ایٹر کی زندگی کا تجربہ کریں',
+          },
+        },
+        is_active: true,
+        created_at: '2026-05-27T10:00:00.000Z',
+        updated_at: '2026-05-27T10:00:00.000Z',
+        sessions: 0,
+        requests: 0,
+      };
+
+      const createStorySpy = jest
+        .spyOn(appController['appService'], 'createStory')
+        .mockResolvedValue(mockStory);
+
+      const result = await appController.createStory({ prompt: mockPrompt });
+      expect(result).toEqual(mockStory);
+      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt);
+    });
+
+    it('should handle API errors gracefully', async () => {
+      const mockPrompt = 'Invalid prompt that causes error';
+      const createStorySpy = jest
+        .spyOn(appController['appService'], 'createStory')
+        .mockRejectedValue(new Error('Failed to get AI response'));
+
+      await expect(
+        appController.createStory({ prompt: mockPrompt }),
+      ).rejects.toThrow('Failed to get AI response');
+      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt);
+    });
+  });
+
+  describe('editStory', () => {
+    it('should update story title successfully', async () => {
+      const mockSlug = 'montpellier';
+      const mockUpdates = {
+        title: 'Medieval Montpellier - Updated Edition',
+      };
+      const mockUpdatedStory = {
+        slug: 'montpellier',
+        title: 'Medieval Montpellier - Updated Edition',
+        content: '# Montpellier Médiéval\n\n## Setting\n...',
+        homepage_display: {
+          en: { title: 'Medieval Montpellier', description: 'Explore medieval life' },
+          fr: { title: 'Montpellier Médiéval', description: 'Explorez la vie médiévale' },
+          es: { title: 'Montpellier Medieval', description: 'Explora la vida medieval' },
+          zh: { title: '中世纪蒙彼利埃', description: '探索中世纪生活' },
+          hi: { title: 'मध्यकालीन मोंपेलियर', description: 'मध्यकालीन जीवन का अन्वेषण करें' },
+          ar: { title: 'مونبلييه القروسطية', description: 'استكشف الحياة في القرون الوسطى' },
+          bn: { title: 'মধ্যযুগীয় মঁপেলিয়ে', description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন' },
+          ru: { title: 'Средневековый Монпелье', description: 'Исследуйте средневековую жизнь' },
+          pt: { title: 'Montpellier Medieval', description: 'Explore a vida medieval' },
+          ur: { title: 'قرون وسطیٰ کا مونپیلیے', description: 'قرون وسطیٰ کی زندگی دریافت کریں' },
+        },
+        is_active: true,
+        created_at: '2025-06-02T17:55:18.314305',
+        updated_at: '2026-05-27T12:00:00.000Z',
+        sessions: 0,
+        requests: 0,
+      };
+
+      const editStorySpy = jest
+        .spyOn(appController['appService'], 'editStory')
+        .mockResolvedValue(mockUpdatedStory);
+
+      const result = await appController.editStory({
+        slug: mockSlug,
+        updates: mockUpdates,
+      });
+      expect(result).toEqual(mockUpdatedStory);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+    });
+
+    it('should update story slug successfully', async () => {
+      const mockSlug = 'montpellier';
+      const mockUpdates = {
+        slug: 'medieval-montpellier',
+      };
+      const mockUpdatedStory = {
+        slug: 'medieval-montpellier',
+        title: 'Medieval Montpellier',
+        content: '# Montpellier Médiéval\n\n## Setting\n...',
+        homepage_display: {
+          en: { title: 'Medieval Montpellier', description: 'Explore medieval life' },
+          fr: { title: 'Montpellier Médiéval', description: 'Explorez la vie médiévale' },
+          es: { title: 'Montpellier Medieval', description: 'Explora la vida medieval' },
+          zh: { title: '中世纪蒙彼利埃', description: '探索中世纪生活' },
+          hi: { title: 'मध्यकालीन मोंपेलियर', description: 'मध्यकालीन जीवन का अन्वेषण करें' },
+          ar: { title: 'مونبلييه القروسطية', description: 'استكشف الحياة في القرون الوسطى' },
+          bn: { title: 'মধ্যযুগীয় মঁপেলিয়ে', description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন' },
+          ru: { title: 'Средневековый Монпелье', description: 'Исследуйте средневековую жизнь' },
+          pt: { title: 'Montpellier Medieval', description: 'Explore a vida medieval' },
+          ur: { title: 'قرون وسطیٰ کا مونپیلیے', description: 'قرون وسطیٰ کی زندگی دریافت کریں' },
+        },
+        is_active: true,
+        created_at: '2025-06-02T17:55:18.314305',
+        updated_at: '2026-05-27T12:00:00.000Z',
+        sessions: 0,
+        requests: 0,
+      };
+
+      const editStorySpy = jest
+        .spyOn(appController['appService'], 'editStory')
+        .mockResolvedValue(mockUpdatedStory);
+
+      const result = await appController.editStory({
+        slug: mockSlug,
+        updates: mockUpdates,
+      });
+      expect(result).toEqual(mockUpdatedStory);
+      expect(result.slug).toBe('medieval-montpellier');
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+    });
+
+    it('should update multiple fields successfully', async () => {
+      const mockSlug = 'montpellier';
+      const mockUpdates = {
+        title: 'Updated Title',
+        is_active: false,
+        sessions: 150,
+      };
+      const mockUpdatedStory = {
+        slug: 'montpellier',
+        title: 'Updated Title',
+        content: '# Montpellier Médiéval\n\n## Setting\n...',
+        homepage_display: {
+          en: { title: 'Medieval Montpellier', description: 'Explore medieval life' },
+          fr: { title: 'Montpellier Médiéval', description: 'Explorez la vie médiévale' },
+          es: { title: 'Montpellier Medieval', description: 'Explora la vida medieval' },
+          zh: { title: '中世纪蒙彼利埃', description: '探索中世纪生活' },
+          hi: { title: 'मध्यकालीन मोंपेलियर', description: 'मध्यकालीन जीवन का अन्वेषण करें' },
+          ar: { title: 'مونبلييه القروسطية', description: 'استكشف الحياة في القرون الوسطى' },
+          bn: { title: 'মধ্যযুগীয় মঁপেলিয়ে', description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন' },
+          ru: { title: 'Средневековый Монпелье', description: 'Исследуйте средневековую жизнь' },
+          pt: { title: 'Montpellier Medieval', description: 'Explore a vida medieval' },
+          ur: { title: 'قرون وسطیٰ کا مونپیلیے', description: 'قرون وسطیٰ کی زندگی دریافت کریں' },
+        },
+        is_active: false,
+        created_at: '2025-06-02T17:55:18.314305',
+        updated_at: '2026-05-27T12:00:00.000Z',
+        sessions: 150,
+        requests: 0,
+      };
+
+      const editStorySpy = jest
+        .spyOn(appController['appService'], 'editStory')
+        .mockResolvedValue(mockUpdatedStory);
+
+      const result = await appController.editStory({
+        slug: mockSlug,
+        updates: mockUpdates,
+      });
+      expect(result).toEqual(mockUpdatedStory);
+      expect(result.title).toBe('Updated Title');
+      expect(result.is_active).toBe(false);
+      expect(result.sessions).toBe(150);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+    });
+
+    it('should handle story not found error', async () => {
+      const mockSlug = 'non-existent-story';
+      const mockUpdates = { title: 'New Title' };
+      const editStorySpy = jest
+        .spyOn(appController['appService'], 'editStory')
+        .mockRejectedValue(new Error('Story not found'));
+
+      await expect(
+        appController.editStory({ slug: mockSlug, updates: mockUpdates }),
+      ).rejects.toThrow('Story not found');
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+    });
+  });
 });

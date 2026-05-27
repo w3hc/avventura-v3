@@ -68,6 +68,26 @@ class CreateStoryDto {
   prompt: string;
 }
 
+class EditStoryDto {
+  @ApiProperty({
+    description: 'The slug of the story to edit',
+    example: 'montpellier',
+  })
+  @IsString()
+  @IsNotEmpty()
+  slug: string;
+
+  @ApiProperty({
+    description: 'The fields to update (partial story data)',
+    required: false,
+    example: {
+      title: 'Updated Title',
+      is_active: false,
+    },
+  })
+  updates: Partial<Omit<StoryData, 'created_at'>>;
+}
+
 @Controller()
 export class AppController {
   private readonly logger = new Logger(AppController.name);
@@ -114,6 +134,24 @@ export class AppController {
   async createStory(@Body() body: CreateStoryDto): Promise<StoryData> {
     this.logger.log('POST /stories endpoint called');
     return this.appService.createStory(body.prompt);
+  }
+
+  @Post('stories/edit')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Edit an existing story',
+  })
+  @ApiBody({ type: EditStoryDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Story updated successfully',
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
+  @ApiResponse({ status: 404, description: 'Story not found' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  async editStory(@Body() body: EditStoryDto): Promise<StoryData> {
+    this.logger.log('POST /stories/edit endpoint called');
+    return this.appService.editStory(body.slug, body.updates);
   }
 
   @Post('start')

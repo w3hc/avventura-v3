@@ -728,6 +728,62 @@ Generate the initial state of the adventure as a JSON response with:
     }
   }
 
+  async editStory(
+    slug: string,
+    updates: Partial<Omit<StoryData, 'created_at'>>,
+  ): Promise<StoryData> {
+    this.logger.log(`Editing story with slug: ${slug}`);
+
+    // Read existing stories
+    const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+    let stories: StoryData[] = [];
+    try {
+      const storiesData = readFileSync(storiesPath, 'utf-8');
+      stories = JSON.parse(storiesData) as StoryData[];
+    } catch (error) {
+      this.logger.error(
+        `Failed to read stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new HttpException(
+        'Failed to read stories file',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    // Find the story to edit
+    const storyIndex = stories.findIndex((s) => s.slug === slug);
+    if (storyIndex === -1) {
+      this.logger.warn(`Story not found: ${slug}`);
+      throw new HttpException('Story not found', HttpStatus.NOT_FOUND);
+    }
+
+    // Update the story with new values
+    const updatedStory: StoryData = {
+      ...stories[storyIndex],
+      ...updates,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Replace the story in the array
+    stories[storyIndex] = updatedStory;
+
+    // Write back to the file
+    try {
+      writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
+      this.logger.log(`Successfully updated story with slug: ${slug}`);
+    } catch (error) {
+      this.logger.error(
+        `Failed to write stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new HttpException(
+        'Failed to save story',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    return updatedStory;
+  }
+
   async move(
     gameId: string,
     choiceIndex: number,

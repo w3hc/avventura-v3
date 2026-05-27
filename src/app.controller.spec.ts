@@ -363,4 +363,145 @@ describe('AppController', () => {
       expect(createStorySpy).toHaveBeenCalledWith(mockPrompt);
     });
   });
+
+  describe('editStory', () => {
+    it('should update story title successfully', async () => {
+      const mockSlug = 'montpellier';
+      const mockUpdates = {
+        title: 'Medieval Montpellier - Updated Edition',
+      };
+      const mockUpdatedStory = {
+        slug: 'montpellier',
+        title: 'Medieval Montpellier - Updated Edition',
+        content: '# Montpellier Médiéval\n\n## Setting\n...',
+        homepage_display: {
+          en: { title: 'Medieval Montpellier', description: 'Explore medieval life' },
+          fr: { title: 'Montpellier Médiéval', description: 'Explorez la vie médiévale' },
+          es: { title: 'Montpellier Medieval', description: 'Explora la vida medieval' },
+          zh: { title: '中世纪蒙彼利埃', description: '探索中世纪生活' },
+          hi: { title: 'मध्यकालीन मोंपेलियर', description: 'मध्यकालीन जीवन का अन्वेषण करें' },
+          ar: { title: 'مونبلييه القروسطية', description: 'استكشف الحياة في القرون الوسطى' },
+          bn: { title: 'মধ্যযুগীয় মঁপেলিয়ে', description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন' },
+          ru: { title: 'Средневековый Монпелье', description: 'Исследуйте средневековую жизнь' },
+          pt: { title: 'Montpellier Medieval', description: 'Explore a vida medieval' },
+          ur: { title: 'قرون وسطیٰ کا مونپیلیے', description: 'قرون وسطیٰ کی زندگی دریافت کریں' },
+        },
+        is_active: true,
+        created_at: '2025-06-02T17:55:18.314305',
+        updated_at: '2026-05-27T12:00:00.000Z',
+        sessions: 0,
+        requests: 0,
+      };
+
+      const editStorySpy = jest
+        .spyOn(appController['appService'], 'editStory')
+        .mockResolvedValue(mockUpdatedStory);
+
+      const result = await appController.editStory({
+        slug: mockSlug,
+        updates: mockUpdates,
+      });
+      expect(result).toEqual(mockUpdatedStory);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+    });
+
+    it('should update story slug successfully', async () => {
+      const mockSlug = 'montpellier';
+      const mockUpdates = {
+        slug: 'medieval-montpellier',
+      };
+      const mockUpdatedStory = {
+        slug: 'medieval-montpellier',
+        title: 'Medieval Montpellier',
+        content: '# Montpellier Médiéval\n\n## Setting\n...',
+        homepage_display: {
+          en: { title: 'Medieval Montpellier', description: 'Explore medieval life' },
+          fr: { title: 'Montpellier Médiéval', description: 'Explorez la vie médiévale' },
+          es: { title: 'Montpellier Medieval', description: 'Explora la vida medieval' },
+          zh: { title: '中世纪蒙彼利埃', description: '探索中世纪生活' },
+          hi: { title: 'मध्यकालीन मोंपेलियर', description: 'मध्यकालीन जीवन का अन्वेषण करें' },
+          ar: { title: 'مونبلييه القروسطية', description: 'استكشف الحياة في القرون الوسطى' },
+          bn: { title: 'মধ্যযুগীয় মঁপেলিয়ে', description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন' },
+          ru: { title: 'Средневековый Монпелье', description: 'Исследуйте средневековую жизнь' },
+          pt: { title: 'Montpellier Medieval', description: 'Explore a vida medieval' },
+          ur: { title: 'قرون وسطیٰ کا مونپیلیے', description: 'قرون وسطیٰ کی زندگی دریافت کریں' },
+        },
+        is_active: true,
+        created_at: '2025-06-02T17:55:18.314305',
+        updated_at: '2026-05-27T12:00:00.000Z',
+        sessions: 0,
+        requests: 0,
+      };
+
+      const editStorySpy = jest
+        .spyOn(appController['appService'], 'editStory')
+        .mockResolvedValue(mockUpdatedStory);
+
+      const result = await appController.editStory({
+        slug: mockSlug,
+        updates: mockUpdates,
+      });
+      expect(result).toEqual(mockUpdatedStory);
+      expect(result.slug).toBe('medieval-montpellier');
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+    });
+
+    it('should update multiple fields successfully', async () => {
+      const mockSlug = 'montpellier';
+      const mockUpdates = {
+        title: 'Updated Title',
+        is_active: false,
+        sessions: 150,
+      };
+      const mockUpdatedStory = {
+        slug: 'montpellier',
+        title: 'Updated Title',
+        content: '# Montpellier Médiéval\n\n## Setting\n...',
+        homepage_display: {
+          en: { title: 'Medieval Montpellier', description: 'Explore medieval life' },
+          fr: { title: 'Montpellier Médiéval', description: 'Explorez la vie médiévale' },
+          es: { title: 'Montpellier Medieval', description: 'Explora la vida medieval' },
+          zh: { title: '中世纪蒙彼利埃', description: '探索中世纪生活' },
+          hi: { title: 'मध्यकालीन मोंपेलियर', description: 'मध्यकालीन जीवन का अन्वेषण करें' },
+          ar: { title: 'مونبلييه القروسطية', description: 'استكشف الحياة في القرون الوسطى' },
+          bn: { title: 'মধ্যযুগীয় মঁপেলিয়ে', description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন' },
+          ru: { title: 'Средневековый Монпелье', description: 'Исследуйте средневековую жизнь' },
+          pt: { title: 'Montpellier Medieval', description: 'Explore a vida medieval' },
+          ur: { title: 'قرون وسطیٰ کا مونپیلیے', description: 'قرون وسطیٰ کی زندگی دریافت کریں' },
+        },
+        is_active: false,
+        created_at: '2025-06-02T17:55:18.314305',
+        updated_at: '2026-05-27T12:00:00.000Z',
+        sessions: 150,
+        requests: 0,
+      };
+
+      const editStorySpy = jest
+        .spyOn(appController['appService'], 'editStory')
+        .mockResolvedValue(mockUpdatedStory);
+
+      const result = await appController.editStory({
+        slug: mockSlug,
+        updates: mockUpdates,
+      });
+      expect(result).toEqual(mockUpdatedStory);
+      expect(result.title).toBe('Updated Title');
+      expect(result.is_active).toBe(false);
+      expect(result.sessions).toBe(150);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+    });
+
+    it('should handle story not found error', async () => {
+      const mockSlug = 'non-existent-story';
+      const mockUpdates = { title: 'New Title' };
+      const editStorySpy = jest
+        .spyOn(appController['appService'], 'editStory')
+        .mockRejectedValue(new Error('Story not found'));
+
+      await expect(
+        appController.editStory({ slug: mockSlug, updates: mockUpdates }),
+      ).rejects.toThrow('Story not found');
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+    });
+  });
 });

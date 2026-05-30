@@ -375,16 +375,43 @@ describe('AppController', () => {
         title: 'Medieval Montpellier - Updated Edition',
         content: '# Montpellier Médiéval\n\n## Setting\n...',
         homepage_display: {
-          en: { title: 'Medieval Montpellier', description: 'Explore medieval life' },
-          fr: { title: 'Montpellier Médiéval', description: 'Explorez la vie médiévale' },
-          es: { title: 'Montpellier Medieval', description: 'Explora la vida medieval' },
+          en: {
+            title: 'Medieval Montpellier',
+            description: 'Explore medieval life',
+          },
+          fr: {
+            title: 'Montpellier Médiéval',
+            description: 'Explorez la vie médiévale',
+          },
+          es: {
+            title: 'Montpellier Medieval',
+            description: 'Explora la vida medieval',
+          },
           zh: { title: '中世纪蒙彼利埃', description: '探索中世纪生活' },
-          hi: { title: 'मध्यकालीन मोंपेलियर', description: 'मध्यकालीन जीवन का अन्वेषण करें' },
-          ar: { title: 'مونبلييه القروسطية', description: 'استكشف الحياة في القرون الوسطى' },
-          bn: { title: 'মধ্যযুগীয় মঁপেলিয়ে', description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন' },
-          ru: { title: 'Средневековый Монпелье', description: 'Исследуйте средневековую жизнь' },
-          pt: { title: 'Montpellier Medieval', description: 'Explore a vida medieval' },
-          ur: { title: 'قرون وسطیٰ کا مونپیلیے', description: 'قرون وسطیٰ کی زندگی دریافت کریں' },
+          hi: {
+            title: 'मध्यकालीन मोंपेलियर',
+            description: 'मध्यकालीन जीवन का अन्वेषण करें',
+          },
+          ar: {
+            title: 'مونبلييه القروسطية',
+            description: 'استكشف الحياة في القرون الوسطى',
+          },
+          bn: {
+            title: 'মধ্যযুগীয় মঁপেলিয়ে',
+            description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন',
+          },
+          ru: {
+            title: 'Средневековый Монпелье',
+            description: 'Исследуйте средневековую жизнь',
+          },
+          pt: {
+            title: 'Montpellier Medieval',
+            description: 'Explore a vida medieval',
+          },
+          ur: {
+            title: 'قرون وسطیٰ کا مونپیلیے',
+            description: 'قرون وسطیٰ کی زندگی دریافت کریں',
+          },
         },
         is_active: true,
         created_at: '2025-06-02T17:55:18.314305',
@@ -415,16 +442,43 @@ describe('AppController', () => {
         title: 'Medieval Montpellier',
         content: '# Montpellier Médiéval\n\n## Setting\n...',
         homepage_display: {
-          en: { title: 'Medieval Montpellier', description: 'Explore medieval life' },
-          fr: { title: 'Montpellier Médiéval', description: 'Explorez la vie médiévale' },
-          es: { title: 'Montpellier Medieval', description: 'Explora la vida medieval' },
+          en: {
+            title: 'Medieval Montpellier',
+            description: 'Explore medieval life',
+          },
+          fr: {
+            title: 'Montpellier Médiéval',
+            description: 'Explorez la vie médiévale',
+          },
+          es: {
+            title: 'Montpellier Medieval',
+            description: 'Explora la vida medieval',
+          },
           zh: { title: '中世纪蒙彼利埃', description: '探索中世纪生活' },
-          hi: { title: 'मध्यकालीन मोंपेलियर', description: 'मध्यकालीन जीवन का अन्वेषण करें' },
-          ar: { title: 'مونبلييه القروسطية', description: 'استكشف الحياة في القرون الوسطى' },
-          bn: { title: 'মধ্যযুগীয় মঁপেলিয়ে', description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন' },
-          ru: { title: 'Средневековый Монпелье', description: 'Исследуйте средневековую жизнь' },
-          pt: { title: 'Montpellier Medieval', description: 'Explore a vida medieval' },
-          ur: { title: 'قرون وسطیٰ کا مونپیلیے', description: 'قرون وسطیٰ کی زندگی دریافت کریں' },
+          hi: {
+            title: 'मध्यकालीन मोंपेलियर',
+            description: 'मध्यकालीन जीवन का अन्वेषण करें',
+          },
+          ar: {
+            title: 'مونبلييه القروسطية',
+            description: 'استكشف الحياة في القرون الوسطى',
+          },
+          bn: {
+            title: 'মধ্যযুগীয় মঁপেলিয়ে',
+            description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন',
+          },
+          ru: {
+            title: 'Средневековый Монпелье',
+            description: 'Исследуйте средневековую жизнь',
+          },
+          pt: {
+            title: 'Montpellier Medieval',
+            description: 'Explore a vida medieval',
+          },
+          ur: {
+            title: 'قرون وسطیٰ کا مونپیلیے',
+            description: 'قرون وسطیٰ کی زندگی دریافت کریں',
+          },
         },
         is_active: true,
         created_at: '2025-06-02T17:55:18.314305',
@@ -458,16 +512,43 @@ describe('AppController', () => {
         title: 'Updated Title',
         content: '# Montpellier Médiéval\n\n## Setting\n...',
         homepage_display: {
-          en: { title: 'Medieval Montpellier', description: 'Explore medieval life' },
-          fr: { title: 'Montpellier Médiéval', description: 'Explorez la vie médiévale' },
-          es: { title: 'Montpellier Medieval', description: 'Explora la vida medieval' },
+          en: {
+            title: 'Medieval Montpellier',
+            description: 'Explore medieval life',
+          },
+          fr: {
+            title: 'Montpellier Médiéval',
+            description: 'Explorez la vie médiévale',
+          },
+          es: {
+            title: 'Montpellier Medieval',
+            description: 'Explora la vida medieval',
+          },
           zh: { title: '中世纪蒙彼利埃', description: '探索中世纪生活' },
-          hi: { title: 'मध्यकालीन मोंपेलियर', description: 'मध्यकालीन जीवन का अन्वेषण करें' },
-          ar: { title: 'مونبلييه القروسطية', description: 'استكشف الحياة في القرون الوسطى' },
-          bn: { title: 'মধ্যযুগীয় মঁপেলিয়ে', description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন' },
-          ru: { title: 'Средневековый Монпелье', description: 'Исследуйте средневековую жизнь' },
-          pt: { title: 'Montpellier Medieval', description: 'Explore a vida medieval' },
-          ur: { title: 'قرون وسطیٰ کا مونپیلیے', description: 'قرون وسطیٰ کی زندگی دریافت کریں' },
+          hi: {
+            title: 'मध्यकालीन मोंपेलियर',
+            description: 'मध्यकालीन जीवन का अन्वेषण करें',
+          },
+          ar: {
+            title: 'مونبلييه القروسطية',
+            description: 'استكشف الحياة في القرون الوسطى',
+          },
+          bn: {
+            title: 'মধ্যযুগীয় মঁপেলিয়ে',
+            description: 'মধ্যযুগীয় জীবন অন্বেষণ করুন',
+          },
+          ru: {
+            title: 'Средневековый Монпелье',
+            description: 'Исследуйте средневековую жизнь',
+          },
+          pt: {
+            title: 'Montpellier Medieval',
+            description: 'Explore a vida medieval',
+          },
+          ur: {
+            title: 'قرون وسطیٰ کا مونپیلیے',
+            description: 'قرون وسطیٰ کی زندگی دریافت کریں',
+          },
         },
         is_active: false,
         created_at: '2025-06-02T17:55:18.314305',

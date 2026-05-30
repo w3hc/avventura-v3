@@ -15,19 +15,6 @@ import {
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 
-interface ChatCompletionResponse {
-  choices: {
-    message: {
-      content: string;
-    };
-  }[];
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
-}
-
 interface Message {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -311,26 +298,31 @@ Generate the initial state of the adventure as a JSON response with:
         (sum, msg) => sum + msg.content.length,
         0,
       );
-      this.logger.debug(`Calling Infomaniak API: ${this.baseUrl}`);
+      this.logger.debug(`Calling Anthropic API`);
       this.logger.debug(`Total prompt characters: ${totalPromptChars}`);
-      this.logger.debug(`Full prompt:\n${JSON.stringify(messages, null, 2)}`);
 
-      const response = await fetch(this.baseUrl, {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${process.env.INFOMANIAK_API_KEY}`,
+          'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+          'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'mistral3',
-          messages,
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          system: messages[0].content,
+          messages: messages.slice(1).map((m) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          })),
         }),
       });
 
       if (!response.ok) {
         const errorBody = await response.text();
         this.logger.error(
-          `Infomaniak API error: ${response.status} ${response.statusText} - ${errorBody}`,
+          `Anthropic API error: ${response.status} ${response.statusText} - ${errorBody}`,
           'start',
         );
         throw new HttpException(
@@ -343,31 +335,33 @@ Generate the initial state of the adventure as a JSON response with:
         );
       }
 
-      const data = (await response.json()) as ChatCompletionResponse;
+      const data = (await response.json()) as {
+        content: { type: string; text: string }[];
+        usage?: { input_tokens: number; output_tokens: number };
+      };
 
       let totalCost = 0;
       if (data.usage) {
-        const inputCost = (data.usage.prompt_tokens / 1_000_000) * 0.1;
-        const outputCost = (data.usage.completion_tokens / 1_000_000) * 0.3;
+        const inputCost = (data.usage.input_tokens / 1_000_000) * 3.0;
+        const outputCost = (data.usage.output_tokens / 1_000_000) * 15.0;
         totalCost = inputCost + outputCost;
 
         this.logger.log(
-          `API Usage - Prompt tokens: ${data.usage.prompt_tokens}, ` +
-            `Completion tokens: ${data.usage.completion_tokens}, ` +
-            `Total tokens: ${data.usage.total_tokens} | ` +
-            `Cost: €${totalCost.toFixed(6)} (Input: €${inputCost.toFixed(6)}, Output: €${outputCost.toFixed(6)})`,
+          `API Usage - Input tokens: ${data.usage.input_tokens}, ` +
+            `Output tokens: ${data.usage.output_tokens} | ` +
+            `Cost: $${totalCost.toFixed(6)} (Input: $${inputCost.toFixed(6)}, Output: $${outputCost.toFixed(6)})`,
         );
       }
 
-      if (!data.choices || data.choices.length === 0) {
-        this.logger.error('Invalid API response: no choices returned', 'start');
+      if (!data.content || data.content.length === 0) {
+        this.logger.error('Invalid API response: no content returned', 'start');
         throw new HttpException(
           'Invalid response from AI service',
           HttpStatus.BAD_GATEWAY,
         );
       }
 
-      const assistantMessage = data.choices[0]?.message?.content ?? '';
+      const assistantMessage = data.content[0]?.text ?? '';
 
       if (!assistantMessage) {
         this.logger.warn('Empty assistant message in API response');
@@ -551,7 +545,8 @@ Generate the initial state of the adventure as a JSON response with:
     let instructions = '';
     try {
       const instructionPath =
-        '/Users/ju/rukh/data/contexts/avventura/avventura-edit-instruction-file.md';
+        process.env.AVVENTURA_INSTRUCTION_FILE_PATH ||
+        join(process.cwd(), 'avventura-edit-instruction-file.md');
       instructions = readFileSync(instructionPath, 'utf-8');
       this.logger.log('Loaded story creation instructions');
     } catch (error) {
@@ -728,10 +723,10 @@ Generate the initial state of the adventure as a JSON response with:
     }
   }
 
-  async editStory(
+  editStory(
     slug: string,
     updates: Partial<Omit<StoryData, 'created_at'>>,
-  ): Promise<StoryData> {
+  ): StoryData {
     this.logger.log(`Editing story with slug: ${slug}`);
 
     // Read existing stories
@@ -920,26 +915,31 @@ Generate ONLY two fields:
         (sum, msg) => sum + msg.content.length,
         0,
       );
-      this.logger.debug(`Calling Infomaniak API: ${this.baseUrl}`);
+      this.logger.debug(`Calling Anthropic API`);
       this.logger.debug(`Total prompt characters: ${totalPromptChars}`);
-      this.logger.debug(`Full prompt:\n${JSON.stringify(messages, null, 2)}`);
 
-      const response = await fetch(this.baseUrl, {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${process.env.INFOMANIAK_API_KEY}`,
+          'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+          'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'mistral3',
-          messages,
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4096,
+          system: messages[0].content,
+          messages: messages.slice(1).map((m) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          })),
         }),
       });
 
       if (!response.ok) {
         const errorBody = await response.text();
         this.logger.error(
-          `Infomaniak API error: ${response.status} ${response.statusText} - ${errorBody}`,
+          `Anthropic API error: ${response.status} ${response.statusText} - ${errorBody}`,
           'move',
         );
         throw new HttpException(
@@ -952,31 +952,33 @@ Generate ONLY two fields:
         );
       }
 
-      const data = (await response.json()) as ChatCompletionResponse;
+      const data = (await response.json()) as {
+        content: { type: string; text: string }[];
+        usage?: { input_tokens: number; output_tokens: number };
+      };
 
       let totalCost = 0;
       if (data.usage) {
-        const inputCost = (data.usage.prompt_tokens / 1_000_000) * 0.1;
-        const outputCost = (data.usage.completion_tokens / 1_000_000) * 0.3;
+        const inputCost = (data.usage.input_tokens / 1_000_000) * 3.0;
+        const outputCost = (data.usage.output_tokens / 1_000_000) * 15.0;
         totalCost = inputCost + outputCost;
 
         this.logger.log(
-          `API Usage - Prompt tokens: ${data.usage.prompt_tokens}, ` +
-            `Completion tokens: ${data.usage.completion_tokens}, ` +
-            `Total tokens: ${data.usage.total_tokens} | ` +
-            `Cost: €${totalCost.toFixed(6)} (Input: €${inputCost.toFixed(6)}, Output: €${outputCost.toFixed(6)})`,
+          `API Usage - Input tokens: ${data.usage.input_tokens}, ` +
+            `Output tokens: ${data.usage.output_tokens} | ` +
+            `Cost: $${totalCost.toFixed(6)} (Input: $${inputCost.toFixed(6)}, Output: $${outputCost.toFixed(6)})`,
         );
       }
 
-      if (!data.choices || data.choices.length === 0) {
-        this.logger.error('Invalid API response: no choices returned', 'move');
+      if (!data.content || data.content.length === 0) {
+        this.logger.error('Invalid API response: no content returned', 'move');
         throw new HttpException(
           'Invalid response from AI service',
           HttpStatus.BAD_GATEWAY,
         );
       }
 
-      const assistantMessage = data.choices[0]?.message?.content ?? '';
+      const assistantMessage = data.content[0]?.text ?? '';
 
       if (!assistantMessage) {
         this.logger.warn('Empty assistant message in API response');

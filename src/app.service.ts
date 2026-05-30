@@ -325,7 +325,12 @@ Generate the initial state of the adventure as a JSON response with:
           model: 'claude-sonnet-4-20250514',
           max_tokens: 4096,
           system: messages[0].content,
-          messages: messages.slice(1).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+          messages: messages
+            .slice(1)
+            .map((m) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })),
         }),
       });
 
@@ -345,7 +350,10 @@ Generate the initial state of the adventure as a JSON response with:
         );
       }
 
-      const data = (await response.json()) as { content: { type: string; text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
+      const data = (await response.json()) as {
+        content: { type: string; text: string }[];
+        usage?: { input_tokens: number; output_tokens: number };
+      };
 
       let totalCost = 0;
       if (data.usage) {
@@ -551,7 +559,8 @@ Generate the initial state of the adventure as a JSON response with:
     // Read the instruction file
     let instructions = '';
     try {
-      const instructionPath = process.env.AVVENTURA_INSTRUCTION_FILE_PATH ||
+      const instructionPath =
+        process.env.AVVENTURA_INSTRUCTION_FILE_PATH ||
         join(process.cwd(), 'avventura-edit-instruction-file.md');
       instructions = readFileSync(instructionPath, 'utf-8');
       this.logger.log('Loaded story creation instructions');
@@ -935,7 +944,12 @@ Generate ONLY two fields:
           model: 'claude-sonnet-4-20250514',
           max_tokens: 4096,
           system: messages[0].content,
-          messages: messages.slice(1).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+          messages: messages
+            .slice(1)
+            .map((m) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })),
         }),
       });
 
@@ -955,7 +969,10 @@ Generate ONLY two fields:
         );
       }
 
-      const data = (await response.json()) as { content: { type: string; text: string }[]; usage?: { input_tokens: number; output_tokens: number } };
+      const data = (await response.json()) as {
+        content: { type: string; text: string }[];
+        usage?: { input_tokens: number; output_tokens: number };
+      };
 
       let totalCost = 0;
       if (data.usage) {

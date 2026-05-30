@@ -318,7 +318,6 @@ Generate the initial state of the adventure as a JSON response with:
         method: 'POST',
         headers: {
           'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-          'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -596,7 +595,6 @@ Generate the initial state of the adventure as a JSON response with:
         method: 'POST',
         headers: {
           'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -948,7 +946,6 @@ Generate ONLY two fields:
         method: 'POST',
         headers: {
           'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-          'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({

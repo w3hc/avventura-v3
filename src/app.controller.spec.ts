@@ -422,7 +422,7 @@ describe('AppController', () => {
 
       const editStorySpy = jest
         .spyOn(appController['appService'], 'editStory')
-        .mockResolvedValue(mockUpdatedStory);
+        .mockReturnValue(mockUpdatedStory);
 
       const result = await appController.editStory({
         slug: mockSlug,
@@ -489,7 +489,7 @@ describe('AppController', () => {
 
       const editStorySpy = jest
         .spyOn(appController['appService'], 'editStory')
-        .mockResolvedValue(mockUpdatedStory);
+        .mockReturnValue(mockUpdatedStory);
 
       const result = await appController.editStory({
         slug: mockSlug,
@@ -559,7 +559,7 @@ describe('AppController', () => {
 
       const editStorySpy = jest
         .spyOn(appController['appService'], 'editStory')
-        .mockResolvedValue(mockUpdatedStory);
+        .mockReturnValue(mockUpdatedStory);
 
       const result = await appController.editStory({
         slug: mockSlug,
@@ -572,16 +572,18 @@ describe('AppController', () => {
       expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
     });
 
-    it('should handle story not found error', async () => {
+    it('should handle story not found error', () => {
       const mockSlug = 'non-existent-story';
       const mockUpdates = { title: 'New Title' };
       const editStorySpy = jest
         .spyOn(appController['appService'], 'editStory')
-        .mockRejectedValue(new Error('Story not found'));
+        .mockImplementation(() => {
+          throw new Error('Story not found');
+        });
 
-      await expect(
+      expect(() =>
         appController.editStory({ slug: mockSlug, updates: mockUpdates }),
-      ).rejects.toThrow('Story not found');
+      ).toThrow('Story not found');
       expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
     });
   });

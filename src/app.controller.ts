@@ -152,7 +152,7 @@ export class AppController {
   @ApiResponse({ status: 500, description: 'Internal server error' })
   editStory(@Body() body: EditStoryDto): Promise<StoryData> {
     this.logger.log('POST /stories/edit endpoint called');
-    return this.appService.editStory(body.slug, body.updates);
+    return Promise.resolve(this.appService.editStory(body.slug, body.updates));
   }
 
   @Post('start')

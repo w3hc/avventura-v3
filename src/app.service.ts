@@ -15,19 +15,6 @@ import {
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 
-interface ChatCompletionResponse {
-  choices: {
-    message: {
-      content: string;
-    };
-  }[];
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-  };
-}
-
 interface Message {
   role: 'system' | 'user' | 'assistant';
   content: string;
@@ -325,12 +312,10 @@ Generate the initial state of the adventure as a JSON response with:
           model: 'claude-sonnet-4-20250514',
           max_tokens: 4096,
           system: messages[0].content,
-          messages: messages
-            .slice(1)
-            .map((m) => ({
-              role: m.role as 'user' | 'assistant',
-              content: m.content,
-            })),
+          messages: messages.slice(1).map((m) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          })),
         }),
       });
 
@@ -738,10 +723,10 @@ Generate the initial state of the adventure as a JSON response with:
     }
   }
 
-  async editStory(
+  editStory(
     slug: string,
     updates: Partial<Omit<StoryData, 'created_at'>>,
-  ): Promise<StoryData> {
+  ): StoryData {
     this.logger.log(`Editing story with slug: ${slug}`);
 
     // Read existing stories
@@ -944,12 +929,10 @@ Generate ONLY two fields:
           model: 'claude-sonnet-4-20250514',
           max_tokens: 4096,
           system: messages[0].content,
-          messages: messages
-            .slice(1)
-            .map((m) => ({
-              role: m.role as 'user' | 'assistant',
-              content: m.content,
-            })),
+          messages: messages.slice(1).map((m) => ({
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+          })),
         }),
       });
 

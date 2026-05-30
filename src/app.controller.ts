@@ -13,7 +13,7 @@ import {
   ApiProperty,
   ApiResponse,
 } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsNumber } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
 import { AppService, Game, Step, StoryData } from './app.service';
 
 class StartDto {
@@ -85,6 +85,7 @@ class EditStoryDto {
       is_active: false,
     },
   })
+  @IsOptional()
   updates: Partial<Omit<StoryData, 'created_at'>>;
 }
 

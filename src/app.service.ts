@@ -237,6 +237,8 @@ Generate the initial state of the adventure as a JSON response with:
 1. A "currentStep" field: The starting situation with description, 3 initial options, and action
 2. A "nextSteps" field: An array of 3 possible future steps (one for each option in currentStep)
 
+⚠️ ABSOLUTELY CRITICAL: The "desc" field must be PURE NARRATIVE ONLY. DO NOT include "**Question:**", "Question:", "**Options:**", "Options:" or any such labels. DO NOT list the options in the desc. Embed questions naturally in the story.
+
 **Response Format (ONLY JSON, no markdown):**
 {
   "currentStep": {
@@ -262,6 +264,17 @@ Generate the initial state of the adventure as a JSON response with:
     }
   ]
 }
+
+**CRITICAL DESCRIPTION RULES:**
+- The "desc" field must ONLY contain narrative description and storytelling
+- ABSOLUTELY FORBIDDEN in "desc": "**question**:", "**Question:**", "Question:", any question labels, "**Options:**", "Options:", or listing the choices
+- DO NOT write "**Question:**" or "**Options:**" anywhere in the "desc" field
+- DO NOT repeat or mention the options within the "desc" field
+- The question or problem should be naturally embedded in the narrative itself
+- Keep descriptions purely narrative and immersive - the reader should understand what choice to make from the story context alone
+- Questions or choices belong ONLY in the "options" array, never in "desc"
+- Example BAD desc: "Il te demande de calculer. **Question:** Combien fait 2+2? **Options:** 3, 4, 5"
+- Example GOOD desc: "Il te demande de calculer combien font 2 plus 2, et attend ta réponse avec un sourire énigmatique."
 
 **CRITICAL LANGUAGE INSTRUCTION:**
 - Respond ENTIRELY in the language with ISO 639-1 code: ${language}
@@ -309,7 +322,7 @@ Generate the initial state of the adventure as a JSON response with:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 4096,
           system: messages[0].content,
           messages: messages.slice(1).map((m) => ({
@@ -852,6 +865,8 @@ Generate ONLY two fields:
 1. A "previously" field: Update the story recap by combining the previous recap ("${game.previously}") with what just happened (the player chose "${game.currentStep.options[choiceIndex]}" and the outcome was: "${newCurrentStep.desc}"). It must summarize the journey so far. The "previously" field MUST contain a maximum of 3000 characters (including spaces and punctuation).
 2. A "nextSteps" field: An array of 3 possible future scenarios, one for each of the current options (${newCurrentStep.options.join(', ')}). Each scenario describes what will happen if that option is chosen.
 
+⚠️ ABSOLUTELY CRITICAL: The "desc" field must be PURE NARRATIVE ONLY. DO NOT include "**Question:**", "Question:", "**Options:**", "Options:" or any such labels. DO NOT list the options in the desc. Embed questions naturally in the story.
+
 **Response Format (ONLY JSON, no markdown):**
 {
   "previously": "Updated recap combining the old recap with the chosen option and what happened",
@@ -873,6 +888,17 @@ Generate ONLY two fields:
     }
   ]
 }
+
+**CRITICAL DESCRIPTION RULES:**
+- The "desc" field must ONLY contain narrative description and storytelling
+- ABSOLUTELY FORBIDDEN in "desc": "**question**:", "**Question:**", "Question:", any question labels, "**Options:**", "Options:", or listing the choices
+- DO NOT write "**Question:**" or "**Options:**" anywhere in the "desc" field
+- DO NOT repeat or mention the options within the "desc" field
+- The question or problem should be naturally embedded in the narrative itself
+- Keep descriptions purely narrative and immersive - the reader should understand what choice to make from the story context alone
+- Questions or choices belong ONLY in the "options" array, never in "desc"
+- Example BAD desc: "Il te demande de calculer. **Question:** Combien fait 2+2? **Options:** 3, 4, 5"
+- Example GOOD desc: "Il te demande de calculer combien font 2 plus 2, et attend ta réponse avec un sourire énigmatique."
 
 **CRITICAL LANGUAGE INSTRUCTION:**
 - Respond ENTIRELY in the language with ISO 639-1 code: ${language}
@@ -926,7 +952,7 @@ Generate ONLY two fields:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
+          model: 'claude-sonnet-4-6',
           max_tokens: 4096,
           system: messages[0].content,
           messages: messages.slice(1).map((m) => ({

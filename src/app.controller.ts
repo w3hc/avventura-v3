@@ -150,7 +150,7 @@ export class AppController {
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
   @ApiResponse({ status: 404, description: 'Story not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
-  async editStory(@Body() body: EditStoryDto): Promise<StoryData> {
+  editStory(@Body() body: EditStoryDto): Promise<StoryData> {
     this.logger.log('POST /stories/edit endpoint called');
     return this.appService.editStory(body.slug, body.updates);
   }

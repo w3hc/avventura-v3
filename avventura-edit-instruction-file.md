@@ -247,11 +247,13 @@ Remember to maintain historical accuracy while creating an engaging, educational
 ```
 
 IMPORTANT GUIDELINES:
-1. The "content" field should be a detailed markdown document with proper sections
-2. Make the story educational and engaging
-3. Include specific milestones that trigger when certain story events happen
-4. Provide translations for all 10 supported languages in homepage_display
-5. The slug should be URL-friendly (lowercase, hyphens only)
-6. Make the story historically accurate if it involves real events/people
-7. Keep the tone appropriate for all ages
-8. Return ONLY the JSON object, no other text
+1. The "content" field MUST be written in English, regardless of the language the user uses in their prompt
+2. The "content" field should be a detailed markdown document with proper sections
+3. Make the story educational and engaging
+4. Include specific milestones that trigger when certain story events happen
+5. Provide translations for all 10 supported languages in homepage_display
+6. The slug should be URL-friendly (lowercase, hyphens only)
+7. Make the story historically accurate if it involves real events/people
+8. Keep the tone appropriate for all ages
+9. The player MUST be the hero and main character - write all descriptions in second person ("you")
+10. Return ONLY the JSON object, no other text

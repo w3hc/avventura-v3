@@ -228,53 +228,16 @@ export class AppService implements OnModuleInit {
       );
     }
 
-    const systemPrompt = `# INSTRUCTIONS FOR THE MULTILINGUAL ADVENTURE
+    // Use prompt caching for static story instructions (cache_control)
+    const cachedStoryInstructions = `# INSTRUCTIONS FOR THE MULTILINGUAL ADVENTURE
 
 ${storyContent}
 
-## Your Task
-Generate the initial state of the adventure as a JSON response with:
-1. A "currentStep" field: The starting situation with description, 3 initial options, and action
-2. A "nextSteps" field: An array of 3 possible future steps (one for each option in currentStep)
-
-⚠️ ABSOLUTELY CRITICAL: The "desc" field must be PURE NARRATIVE ONLY. DO NOT include "**Question:**", "Question:", "**Options:**", "Options:" or any such labels. DO NOT list the options in the desc. Embed questions naturally in the story.
-
-**Response Format (ONLY JSON, no markdown):**
-{
-  "currentStep": {
-    "desc": "Description of the starting situation",
-    "options": ["Option 1", "Option 2", "Option 3"],
-    "action": "start"
-  },
-  "nextSteps": [
-    {
-      "desc": "What happens if Option 1 is chosen",
-      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
-      "action": "continue"
-    },
-    {
-      "desc": "What happens if Option 2 is chosen",
-      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
-      "action": "continue"
-    },
-    {
-      "desc": "What happens if Option 3 is chosen",
-      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
-      "action": "continue"
-    }
-  ]
-}
-
 **CRITICAL DESCRIPTION RULES:**
 - The "desc" field must ONLY contain narrative description and storytelling
-- ABSOLUTELY FORBIDDEN in "desc": "**question**:", "**Question:**", "Question:", any question labels, "**Options:**", "Options:", or listing the choices
-- DO NOT write "**Question:**" or "**Options:**" anywhere in the "desc" field
-- DO NOT repeat or mention the options within the "desc" field
-- The question or problem should be naturally embedded in the narrative itself
-- Keep descriptions purely narrative and immersive - the reader should understand what choice to make from the story context alone
-- Questions or choices belong ONLY in the "options" array, never in "desc"
-- Example BAD desc: "Il te demande de calculer. **Question:** Combien fait 2+2? **Options:** 3, 4, 5"
-- Example GOOD desc: "Il te demande de calculer combien font 2 plus 2, et attend ta réponse avec un sourire énigmatique."
+- Keep descriptions purely narrative and immersive
+- The reader should understand what choice to make from the story context alone
+- Present information and choices naturally within the narrative flow
 
 **CRITICAL LANGUAGE INSTRUCTION:**
 - Respond ENTIRELY in the language with ISO 639-1 code: ${language}
@@ -288,7 +251,40 @@ Generate the initial state of the adventure as a JSON response with:
 - Different themes/tones: Each path should have a distinct emotional tone (adventure vs. danger vs. mystery vs. diplomacy, etc.)
 - Mutually exclusive events: Choosing one path should lock out the events/opportunities from other paths
 - Different consequences: Each path leads to fundamentally different outcomes, not just variations
-- Different skills/resources: Each path should involve different abilities, tools, or knowledge
+- Different skills/resources: Each path should involve different abilities, tools, or knowledge`;
+
+    const systemPrompt = `${cachedStoryInstructions}
+
+## Your Task
+Generate the initial state of the adventure as a JSON response with:
+1. A "currentStep" field: The starting situation with description, 3 initial options, and action
+2. A "nextSteps" field: An array of 3 possible future steps (one for each option in currentStep)
+
+**Response Format (ONLY JSON, no markdown):**
+{
+  "currentStep": {
+    "desc": "Description of the starting situation",
+    "options": ["Option 1", "Option 2", "Option 3"],
+    "action": "start"
+  },
+  "nextSteps": [
+    {
+      "desc": "What happens if option 1 is chosen",
+      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
+      "action": "continue"
+    },
+    {
+      "desc": "What happens if option 2 is chosen",
+      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
+      "action": "continue"
+    },
+    {
+      "desc": "What happens if option 3 is chosen",
+      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
+      "action": "continue"
+    }
+  ]
+}
 
 **IMPORTANT:**
 - Return ONLY the JSON object, no markdown code blocks
@@ -318,12 +314,24 @@ Generate the initial state of the adventure as a JSON response with:
         method: 'POST',
         headers: {
           'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+          'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: 4096,
-          system: messages[0].content,
+          // Use prompt caching: split system prompt into cacheable and dynamic parts
+          system: [
+            {
+              type: 'text',
+              text: cachedStoryInstructions,
+              cache_control: { type: 'ephemeral' },
+            },
+            {
+              type: 'text',
+              text: systemPrompt.replace(cachedStoryInstructions, '').trim(),
+            },
+          ],
           messages: messages.slice(1).map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
@@ -349,19 +357,29 @@ Generate the initial state of the adventure as a JSON response with:
 
       const data = (await response.json()) as {
         content: { type: string; text: string }[];
-        usage?: { input_tokens: number; output_tokens: number };
+        usage?: {
+          input_tokens: number;
+          output_tokens: number;
+          cache_creation_input_tokens?: number;
+          cache_read_input_tokens?: number;
+        };
       };
 
       let totalCost = 0;
       if (data.usage) {
-        const inputCost = (data.usage.input_tokens / 1_000_000) * 3.0;
+        const cacheWrite = data.usage.cache_creation_input_tokens || 0;
+        const cacheRead = data.usage.cache_read_input_tokens || 0;
+        const regularInput = data.usage.input_tokens; // Already excludes cached tokens
+
+        const inputCost = (regularInput / 1_000_000) * 3.0;
+        const cacheWriteCost = (cacheWrite / 1_000_000) * 3.75; // 25% more than base
+        const cacheReadCost = (cacheRead / 1_000_000) * 0.3; // 90% discount
         const outputCost = (data.usage.output_tokens / 1_000_000) * 15.0;
-        totalCost = inputCost + outputCost;
+        totalCost = inputCost + cacheWriteCost + cacheReadCost + outputCost;
 
         this.logger.log(
-          `API Usage - Input tokens: ${data.usage.input_tokens}, ` +
-            `Output tokens: ${data.usage.output_tokens} | ` +
-            `Cost: $${totalCost.toFixed(6)} (Input: $${inputCost.toFixed(6)}, Output: $${outputCost.toFixed(6)})`,
+          `API Usage - Regular: ${regularInput}, CacheWrite: ${cacheWrite}, CacheRead: ${cacheRead}, Output: ${data.usage.output_tokens} | ` +
+            `Cost: $${totalCost.toFixed(6)} (savings: ${cacheRead > 0 ? `$${((cacheRead / 1_000_000) * 2.7).toFixed(6)}` : '$0'})`,
         );
       }
 
@@ -595,6 +613,7 @@ Generate the initial state of the adventure as a JSON response with:
         method: 'POST',
         headers: {
           'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -842,61 +861,15 @@ Generate the initial state of the adventure as a JSON response with:
       );
     }
 
-    const systemPrompt = `# STORY INSTRUCTIONS
+    // Use prompt caching for static story instructions (cache_control)
+    const cachedStoryInstructions = `# STORY INSTRUCTIONS
 ${storyContent}
-
-## Story Recap
-${game.previously}
-
-## Player's Choice
-The player chose option ${choiceIndex + 1}: "${game.currentStep.options[choiceIndex]}"
-
-## Current Situation
-The player is now in this situation:
-${newCurrentStep.desc}
-
-Available options for the player:
-${newCurrentStep.options.map((opt, i) => `${i + 1}. ${opt}`).join('\n')}
-
-## Your Task
-Generate ONLY two fields:
-1. A "previously" field: Update the story recap by combining the previous recap ("${game.previously}") with what just happened (the player chose "${game.currentStep.options[choiceIndex]}" and the outcome was: "${newCurrentStep.desc}"). It must summarize the journey so far. The "previously" field MUST contain a maximum of 3000 characters (including spaces and punctuation).
-2. A "nextSteps" field: An array of 3 possible future scenarios, one for each of the current options (${newCurrentStep.options.join(', ')}). Each scenario describes what will happen if that option is chosen.
-
-⚠️ ABSOLUTELY CRITICAL: The "desc" field must be PURE NARRATIVE ONLY. DO NOT include "**Question:**", "Question:", "**Options:**", "Options:" or any such labels. DO NOT list the options in the desc. Embed questions naturally in the story.
-
-**Response Format (ONLY JSON, no markdown):**
-{
-  "previously": "Updated recap combining the old recap with the chosen option and what happened",
-  "nextSteps": [
-    {
-      "desc": "What happens if '${newCurrentStep.options[0]}' is chosen",
-      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
-      "action": "continue"
-    },
-    {
-      "desc": "What happens if '${newCurrentStep.options[1]}' is chosen",
-      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
-      "action": "continue"
-    },
-    {
-      "desc": "What happens if '${newCurrentStep.options[2]}' is chosen",
-      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
-      "action": "continue"
-    }
-  ]
-}
 
 **CRITICAL DESCRIPTION RULES:**
 - The "desc" field must ONLY contain narrative description and storytelling
-- ABSOLUTELY FORBIDDEN in "desc": "**question**:", "**Question:**", "Question:", any question labels, "**Options:**", "Options:", or listing the choices
-- DO NOT write "**Question:**" or "**Options:**" anywhere in the "desc" field
-- DO NOT repeat or mention the options within the "desc" field
-- The question or problem should be naturally embedded in the narrative itself
-- Keep descriptions purely narrative and immersive - the reader should understand what choice to make from the story context alone
-- Questions or choices belong ONLY in the "options" array, never in "desc"
-- Example BAD desc: "Il te demande de calculer. **Question:** Combien fait 2+2? **Options:** 3, 4, 5"
-- Example GOOD desc: "Il te demande de calculer combien font 2 plus 2, et attend ta réponse avec un sourire énigmatique."
+- Keep descriptions purely narrative and immersive
+- The reader should understand what choice to make from the story context alone
+- Present information and choices naturally within the narrative flow
 
 **CRITICAL LANGUAGE INSTRUCTION:**
 - Respond ENTIRELY in the language with ISO 639-1 code: ${language}
@@ -911,15 +884,55 @@ Generate ONLY two fields:
 - Mutually exclusive events: Choosing one path should lock out the events/opportunities from other paths
 - Different consequences: Each path leads to fundamentally different outcomes, not just variations
 - Different skills/resources: Each path should involve different abilities, tools, or knowledge
-- Ensure paths remain distinct throughout the story, not converging back together
+- Ensure paths remain distinct throughout the story, not converging back together`;
+
+    const systemPrompt = `${cachedStoryInstructions}
+
+## Story Recap
+${game.previously}
+
+## Player's Choice
+The player chose option ${choiceIndex + 1}: "${game.currentStep.options[choiceIndex]}"
+
+## Your Task
+Generate ONLY two fields:
+1. A "previously" field: Update the story recap. If the recap is getting long (approaching 1500 characters), create a progressive summary that:
+   - Keeps the most recent 2-3 events in detail
+   - Summarizes earlier events more briefly
+   - Maintains narrative continuity and key plot points
+   - Maximum 1500 characters (this is HALF the previous limit to reduce prompt size)
+
+   The new recap should combine: the previous recap + the chosen option ("${game.currentStep.options[choiceIndex]}") + the outcome ("${newCurrentStep.desc}")
+
+2. A "nextSteps" field: An array of 3 possible future scenarios, one for each current option. Each scenario describes what will happen if that option is chosen.
+
+**Response Format (ONLY JSON, no markdown):**
+{
+  "previously": "Updated recap with progressive summarization",
+  "nextSteps": [
+    {
+      "desc": "What happens if option 1 is chosen",
+      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
+      "action": "continue"
+    },
+    {
+      "desc": "What happens if option 2 is chosen",
+      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
+      "action": "continue"
+    },
+    {
+      "desc": "What happens if option 3 is chosen",
+      "options": ["Next Option 1", "Next Option 2", "Next Option 3"],
+      "action": "continue"
+    }
+  ]
+}
 
 **IMPORTANT:**
 - Return ONLY the JSON object with "previously" and "nextSteps" fields - DO NOT include "currentStep"
 - No markdown code blocks
-- The "previously" field MUST incorporate both the old recap AND the new events
 - Keep the story progressive and NEVER repeat situations or scenarios from the previously recap
 - Each new scenario must introduce NEW elements, locations, characters, or events
-- Review the previously recap carefully and ensure all new content is fresh and different
 - Each nextStep must meaningfully correspond to the option it represents
 - Set action to "milestone" for significant story points, "continue" otherwise`;
 
@@ -946,12 +959,24 @@ Generate ONLY two fields:
         method: 'POST',
         headers: {
           'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+          'anthropic-version': '2023-06-01',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: 4096,
-          system: messages[0].content,
+          // Use prompt caching: split system prompt into cacheable and dynamic parts
+          system: [
+            {
+              type: 'text',
+              text: cachedStoryInstructions,
+              cache_control: { type: 'ephemeral' },
+            },
+            {
+              type: 'text',
+              text: systemPrompt.replace(cachedStoryInstructions, '').trim(),
+            },
+          ],
           messages: messages.slice(1).map((m) => ({
             role: m.role as 'user' | 'assistant',
             content: m.content,
@@ -977,19 +1002,29 @@ Generate ONLY two fields:
 
       const data = (await response.json()) as {
         content: { type: string; text: string }[];
-        usage?: { input_tokens: number; output_tokens: number };
+        usage?: {
+          input_tokens: number;
+          output_tokens: number;
+          cache_creation_input_tokens?: number;
+          cache_read_input_tokens?: number;
+        };
       };
 
       let totalCost = 0;
       if (data.usage) {
-        const inputCost = (data.usage.input_tokens / 1_000_000) * 3.0;
+        const cacheWrite = data.usage.cache_creation_input_tokens || 0;
+        const cacheRead = data.usage.cache_read_input_tokens || 0;
+        const regularInput = data.usage.input_tokens; // Already excludes cached tokens
+
+        const inputCost = (regularInput / 1_000_000) * 3.0;
+        const cacheWriteCost = (cacheWrite / 1_000_000) * 3.75; // 25% more than base
+        const cacheReadCost = (cacheRead / 1_000_000) * 0.3; // 90% discount
         const outputCost = (data.usage.output_tokens / 1_000_000) * 15.0;
-        totalCost = inputCost + outputCost;
+        totalCost = inputCost + cacheWriteCost + cacheReadCost + outputCost;
 
         this.logger.log(
-          `API Usage - Input tokens: ${data.usage.input_tokens}, ` +
-            `Output tokens: ${data.usage.output_tokens} | ` +
-            `Cost: $${totalCost.toFixed(6)} (Input: $${inputCost.toFixed(6)}, Output: $${outputCost.toFixed(6)})`,
+          `API Usage - Regular: ${regularInput}, CacheWrite: ${cacheWrite}, CacheRead: ${cacheRead}, Output: ${data.usage.output_tokens} | ` +
+            `Cost: $${totalCost.toFixed(6)} (savings: ${cacheRead > 0 ? `$${((cacheRead / 1_000_000) * 2.7).toFixed(6)}` : '$0'})`,
         );
       }
 

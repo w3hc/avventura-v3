@@ -568,6 +568,31 @@ Generate the initial state of the adventure as a JSON response with:
     }
   }
 
+  getStory(slug: string): StoryData {
+    this.logger.log(`Fetching story with slug: ${slug}`);
+    let stories: StoryData[] = [];
+    try {
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      stories = JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
+    } catch (error) {
+      this.logger.error(
+        `Failed to load stories: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new HttpException(
+        'Failed to load stories',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    const story = stories.find((s) => s.slug === slug);
+    if (!story) {
+      this.logger.warn(`Story not found: ${slug}`);
+      throw new HttpException('Story not found', HttpStatus.NOT_FOUND);
+    }
+
+    return story;
+  }
+
   async createStory(prompt: string): Promise<StoryData> {
     this.logger.log(`Creating new story from prompt: ${prompt}`);
 

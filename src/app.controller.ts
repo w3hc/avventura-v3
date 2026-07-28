@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Param,
   Post,
   Logger,
   HttpStatus,
@@ -117,6 +118,21 @@ export class AppController {
   getStories() {
     this.logger.log('GET /stories endpoint called');
     return this.appService.getStories();
+  }
+
+  @Get('stories/:slug')
+  @ApiOperation({
+    summary: 'Get the full data for a single story by slug',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Full story data',
+  })
+  @ApiResponse({ status: 404, description: 'Story not found' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  getStory(@Param('slug') slug: string): StoryData {
+    this.logger.log(`GET /stories/${slug} endpoint called`);
+    return this.appService.getStory(slug);
   }
 
   @Post('stories')

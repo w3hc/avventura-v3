@@ -206,7 +206,7 @@ export class AppService implements OnModuleInit {
   async start(
     story: string = 'montpellier',
     language: string = 'fr',
-    players?: Player[],
+    players?: Partial<Player>[],
   ): Promise<Game> {
     this.logger.log(`Starting new game with story: ${story}`);
 
@@ -261,33 +261,40 @@ ${storyContent}
 - Different skills/resources: Each path should involve different abilities, tools, or knowledge`;
 
     const validPlayers = (players || [])
-      .filter((p) => p?.name?.trim())
+      .filter((p): p is Player => Boolean(p?.name?.trim()))
       .map((p) => ({
         name: p.name.trim(),
         ...(p.info?.trim() ? { info: p.info.trim() } : {}),
       }));
+    const isSoloPlayer = validPlayers.length === 1;
     const playersSection =
       validPlayers.length > 0
-        ? `\n\n## Players (protagonists of this adventure)
+        ? `\n\n## Player${validPlayers.length > 1 ? 's' : ''} (protagonist${validPlayers.length > 1 ? 's' : ''} of this adventure)
 ${validPlayers
   .map((p) => (p.info ? `- ${p.name}: ${p.info}` : `- ${p.name}`))
   .join('\n')}
 
-**MANDATORY PLAYER INTEGRATION:**
-- These player(s) ARE the protagonist(s) of the story. The pronoun "you" is FORBIDDEN in "desc" and "options" — always use the player's name instead (e.g. "Julien notices a shadow" and "Julien decides to...", never "You notice a shadow" or "You decide to...").
-- This applies even with a single player: replace EVERY "you" with their name, including when narrating their own thoughts, senses, and actions. Do not fall back to "you" out of habit.
-- If a player has additional info (trait, background, fear, skill, role, etc.), let it meaningfully shape the narrative: how NPCs react to them, which options are open to them, or how situations specifically affect them because of it.
-- If there is more than one player, write this as a shared party adventure: the group acts together, but give each named player at least one distinct beat, reaction, or decision point.`
+**PLAYER INTEGRATION:**
+${
+  isSoloPlayer
+    ? `- This is a solo choose-your-own-adventure: write "desc" and "options" in second person ("you") as the default narrative voice for the player's actions, thoughts, and senses.
+- Mention ${validPlayers[0].name} by name occasionally — e.g. when an NPC addresses them, or for emphasis at a key moment — roughly once every few beats. Don't use their name in every sentence, and don't drop "you" as the default.`
+    : `- The pronoun "you" is FORBIDDEN in "desc" and "options" — always use the player's name instead (e.g. "Julien notices a shadow" and "Julien decides to...", never "You notice a shadow" or "You decide to..."), since "you" would be ambiguous with more than one player.
+- Write this as a shared party adventure: the group acts together, but give each named player at least one distinct beat, reaction, or decision point.`
+}
+- If a player has additional info (trait, background, fear, skill, role, etc.), let it meaningfully shape the narrative: how NPCs react to them, which options are open to them, or how situations specifically affect them because of it.`
         : '';
 
     const playerNameReminder =
-      validPlayers.length > 0
-        ? `\n- CRITICAL: never write "you" — use ${validPlayers
-            .map((p) => p.name)
-            .join(
-              ' and ',
-            )} by name in every sentence of "desc" and "options" that refers to the player(s)`
-        : '';
+      validPlayers.length === 0
+        ? ''
+        : isSoloPlayer
+          ? `\n- Default to "you" for ${validPlayers[0].name}'s actions/thoughts/senses in "desc" and "options"; mention their name only occasionally, not in every sentence`
+          : `\n- CRITICAL: never write "you" — use ${validPlayers
+              .map((p) => p.name)
+              .join(
+                ' and ',
+              )} by name in every sentence of "desc" and "options" that refers to the player(s)`;
 
     const systemPrompt = `${cachedStoryInstructions}${playersSection}
 
@@ -884,13 +891,15 @@ Generate the initial state of the adventure as a JSON response with:
     const language = game.language;
     const players = game.players || [];
     const playerNameReminder =
-      players.length > 0
-        ? `\n- CRITICAL: these players ARE the protagonist(s) — never write "you", use ${players
-            .map((p) => p.name)
-            .join(
-              ' and ',
-            )} by name in every sentence of "previously" and "nextSteps" that refers to them`
-        : '';
+      players.length === 0
+        ? ''
+        : players.length === 1
+          ? `\n- Default to "you" for ${players[0].name}'s actions/thoughts/senses in "previously" and "nextSteps"; mention their name only occasionally, not in every sentence`
+          : `\n- CRITICAL: these players ARE the protagonist(s) — never write "you", use ${players
+              .map((p) => p.name)
+              .join(
+                ' and ',
+              )} by name in every sentence of "previously" and "nextSteps" that refers to them`;
 
     // Validate choice index
     if (

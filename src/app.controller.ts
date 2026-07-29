@@ -14,8 +14,35 @@ import {
   ApiProperty,
   ApiResponse,
 } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
-import { AppService, Game, Step, StoryData } from './app.service';
+import { Type } from 'class-transformer';
+import {
+  IsString,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsArray,
+  ValidateNested,
+} from 'class-validator';
+import { AppService, Game, Player, Step, StoryData } from './app.service';
+
+class PlayerDto implements Player {
+  @ApiProperty({
+    description: "The player's name",
+    example: 'Julien',
+  })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty({
+    description: 'Optional additional info about the player/character',
+    required: false,
+    example: 'Left-handed, afraid of heights',
+  })
+  @IsOptional()
+  @IsString()
+  info?: string;
+}
 
 class StartDto {
   @ApiProperty({
@@ -35,6 +62,17 @@ class StartDto {
   })
   @IsString()
   language?: string;
+
+  @ApiProperty({
+    description: 'The players taking part in the adventure',
+    required: false,
+    type: [PlayerDto],
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PlayerDto)
+  players?: PlayerDto[];
 }
 
 class MoveDto {
@@ -186,7 +224,7 @@ export class AppController {
     this.logger.log('POST /start endpoint called');
     const storySlug = body?.story?.trim() || 'montpellier';
     const language = body?.language?.trim() || 'fr';
-    return this.appService.start(storySlug, language);
+    return this.appService.start(storySlug, language, body?.players);
   }
 
   @Post('state')

@@ -25,14 +25,15 @@ import {
 } from 'class-validator';
 import { AppService, Game, Player, Step, StoryData } from './app.service';
 
-class PlayerDto implements Player {
+class PlayerDto implements Partial<Player> {
   @ApiProperty({
     description: "The player's name",
     example: 'Julien',
   })
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
-  name: string;
+  name?: string;
 
   @ApiProperty({
     description: 'Optional additional info about the player/character',
@@ -50,6 +51,7 @@ class StartDto {
     required: false,
     default: 'montpellier',
   })
+  @IsOptional()
   @IsString()
   @IsNotEmpty()
   story?: string;
@@ -60,6 +62,7 @@ class StartDto {
     required: false,
     default: 'fr',
   })
+  @IsOptional()
   @IsString()
   language?: string;
 

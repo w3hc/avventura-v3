@@ -206,7 +206,7 @@ export class AppService implements OnModuleInit {
   async start(
     story: string = 'montpellier',
     language: string = 'fr',
-    players?: Player[],
+    players?: Partial<Player>[],
   ): Promise<Game> {
     this.logger.log(`Starting new game with story: ${story}`);
 
@@ -261,7 +261,7 @@ ${storyContent}
 - Different skills/resources: Each path should involve different abilities, tools, or knowledge`;
 
     const validPlayers = (players || [])
-      .filter((p) => p?.name?.trim())
+      .filter((p): p is Player => Boolean(p?.name?.trim()))
       .map((p) => ({
         name: p.name.trim(),
         ...(p.info?.trim() ? { info: p.info.trim() } : {}),

@@ -41,7 +41,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
 
     this.logger.error(
-      `HTTP ${status} Error - ${request.method} ${request.url}`,
+      `HTTP ${status} Error - ${request.method} ${request.url} - ${JSON.stringify(message)}`,
       exception instanceof Error ? exception.stack : String(exception),
     );
 

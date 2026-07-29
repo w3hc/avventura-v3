@@ -26,6 +26,11 @@ export interface Step {
   action: string;
 }
 
+export interface Player {
+  name: string;
+  info?: string;
+}
+
 export interface Game {
   id: string;
   story: string;
@@ -33,6 +38,7 @@ export interface Game {
   previously: string;
   currentStep: Step;
   nextSteps: Step[];
+  players?: Player[];
 }
 
 export interface ModelsResponse {
@@ -200,6 +206,7 @@ export class AppService implements OnModuleInit {
   async start(
     story: string = 'montpellier',
     language: string = 'fr',
+    players?: Player[],
   ): Promise<Game> {
     this.logger.log(`Starting new game with story: ${story}`);
 
@@ -253,7 +260,36 @@ ${storyContent}
 - Different consequences: Each path leads to fundamentally different outcomes, not just variations
 - Different skills/resources: Each path should involve different abilities, tools, or knowledge`;
 
-    const systemPrompt = `${cachedStoryInstructions}
+    const validPlayers = (players || [])
+      .filter((p) => p?.name?.trim())
+      .map((p) => ({
+        name: p.name.trim(),
+        ...(p.info?.trim() ? { info: p.info.trim() } : {}),
+      }));
+    const playersSection =
+      validPlayers.length > 0
+        ? `\n\n## Players (protagonists of this adventure)
+${validPlayers
+  .map((p) => (p.info ? `- ${p.name}: ${p.info}` : `- ${p.name}`))
+  .join('\n')}
+
+**MANDATORY PLAYER INTEGRATION:**
+- These player(s) ARE the protagonist(s) of the story. The pronoun "you" is FORBIDDEN in "desc" and "options" — always use the player's name instead (e.g. "Julien notices a shadow" and "Julien decides to...", never "You notice a shadow" or "You decide to...").
+- This applies even with a single player: replace EVERY "you" with their name, including when narrating their own thoughts, senses, and actions. Do not fall back to "you" out of habit.
+- If a player has additional info (trait, background, fear, skill, role, etc.), let it meaningfully shape the narrative: how NPCs react to them, which options are open to them, or how situations specifically affect them because of it.
+- If there is more than one player, write this as a shared party adventure: the group acts together, but give each named player at least one distinct beat, reaction, or decision point.`
+        : '';
+
+    const playerNameReminder =
+      validPlayers.length > 0
+        ? `\n- CRITICAL: never write "you" — use ${validPlayers
+            .map((p) => p.name)
+            .join(
+              ' and ',
+            )} by name in every sentence of "desc" and "options" that refers to the player(s)`
+        : '';
+
+    const systemPrompt = `${cachedStoryInstructions}${playersSection}
 
 ## Your Task
 Generate the initial state of the adventure as a JSON response with:
@@ -289,7 +325,7 @@ Generate the initial state of the adventure as a JSON response with:
 **IMPORTANT:**
 - Return ONLY the JSON object, no markdown code blocks
 - Each nextStep should meaningfully correspond to its option in currentStep
-- Set action to "start" for the initial step`;
+- Set action to "start" for the initial step${playerNameReminder}`;
 
     const messages: Message[] = [
       {
@@ -442,6 +478,7 @@ Generate the initial state of the adventure as a JSON response with:
           language === 'en' ? 'First step.' : this.getFirstStepText(language),
         currentStep: aiResponse.currentStep,
         nextSteps: aiResponse.nextSteps,
+        players: validPlayers,
       };
 
       this.writeGame(newGame);
@@ -845,6 +882,15 @@ Generate the initial state of the adventure as a JSON response with:
     // Get the game
     const game = this.getGame(gameId);
     const language = game.language;
+    const players = game.players || [];
+    const playerNameReminder =
+      players.length > 0
+        ? `\n- CRITICAL: these players ARE the protagonist(s) — never write "you", use ${players
+            .map((p) => p.name)
+            .join(
+              ' and ',
+            )} by name in every sentence of "previously" and "nextSteps" that refers to them`
+        : '';
 
     // Validate choice index
     if (
@@ -959,7 +1005,7 @@ Generate ONLY two fields:
 - Keep the story progressive and NEVER repeat situations or scenarios from the previously recap
 - Each new scenario must introduce NEW elements, locations, characters, or events
 - Each nextStep must meaningfully correspond to the option it represents
-- Set action to "milestone" for significant story points, "continue" otherwise`;
+- Set action to "milestone" for significant story points, "continue" otherwise${playerNameReminder}`;
 
     const messages: Message[] = [
       {

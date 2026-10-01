@@ -2,7 +2,14 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { AppController, StartDto } from './app.controller';
-import { AppService, Difficulty, Game, Step } from './app.service';
+import {
+  AppService,
+  Difficulty,
+  Game,
+  SHORT_DESC_MAX,
+  Step,
+  TextLength,
+} from './app.service';
 import * as modelsData from '../models-infomaniak.json';
 
 describe('AppController', () => {
@@ -79,6 +86,7 @@ describe('AppController', () => {
         'fr',
         undefined,
         undefined,
+        undefined,
       );
     });
 
@@ -123,6 +131,7 @@ describe('AppController', () => {
       expect(startSpy).toHaveBeenCalledWith(
         'montpellier-medieval',
         'fr',
+        undefined,
         undefined,
         undefined,
       );
@@ -171,6 +180,7 @@ describe('AppController', () => {
         'es',
         undefined,
         undefined,
+        undefined,
       );
     });
 
@@ -216,6 +226,7 @@ describe('AppController', () => {
       expect(startSpy).toHaveBeenCalledWith(
         'montpellier-medieval',
         'en',
+        undefined,
         undefined,
         undefined,
       );
@@ -628,7 +639,11 @@ describe('AppController', () => {
           user: string,
           context: string,
           difficulty: Difficulty,
-        ) => Promise<{ aiResponse: { nextSteps: Step[] }; cost: number }>;
+          textLength?: TextLength,
+        ) => Promise<{
+          aiResponse: { currentStep?: Step; nextSteps: Step[] };
+          cost: number;
+        }>;
       };
 
     const game = (currentStep: Step, nextSteps: Step[]): Game => ({
@@ -663,6 +678,7 @@ describe('AppController', () => {
         'fr',
         undefined,
         'hard',
+        undefined,
       );
     });
 
@@ -747,6 +763,135 @@ describe('AppController', () => {
         'easy',
       );
       expect(aiResponse.nextSteps).toEqual(safe);
+    });
+  });
+
+  describe('text length', () => {
+    const step = (desc: string): Step => ({
+      desc,
+      options: ['A', 'B', 'C'],
+      action: 'continue',
+    });
+
+    const sentence = 'The wind howls through the old stones. ';
+    const long = sentence.repeat(30).trimEnd();
+    const short = sentence.repeat(5).trimEnd();
+
+    const internals = (service: AppService) =>
+      service as unknown as {
+        generate: (...args: unknown[]) => Promise<unknown>;
+        generateSteps: (
+          cached: string,
+          system: string,
+          user: string,
+          context: string,
+          difficulty: Difficulty,
+          textLength: TextLength,
+        ) => Promise<{
+          aiResponse: { currentStep?: Step; nextSteps: Step[] };
+          cost: number;
+        }>;
+      };
+
+    it('should accept a known text length', async () => {
+      const dto = plainToInstance(StartDto, { textLength: 'short' });
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('should reject an unknown text length', async () => {
+      const dto = plainToInstance(StartDto, { textLength: 'long' });
+      const errors = await validate(dto);
+      expect(errors[0].property).toBe('textLength');
+    });
+
+    it('should pass the text length to the service', async () => {
+      const startSpy = jest
+        .spyOn(appController['appService'], 'start')
+        .mockResolvedValue({} as Game);
+
+      await appController.start({ textLength: 'short' });
+      expect(startSpy).toHaveBeenCalledWith(
+        'montpellier',
+        'fr',
+        undefined,
+        undefined,
+        'short',
+      );
+    });
+
+    it.each<[TextLength, string, number]>([
+      ['normal', long, 1],
+      ['short', short, 1],
+      ['short', long, 2],
+    ])(
+      'on %s should call the model the expected number of times',
+      async (textLength, desc, calls) => {
+        const service = internals(appController['appService']);
+        const generateSpy = jest.spyOn(service, 'generate').mockResolvedValue({
+          aiResponse: { nextSteps: [step(desc), step(desc), step(desc)] },
+          cost: 1,
+        });
+
+        await service.generateSteps(
+          'cached',
+          'system',
+          'user',
+          'move',
+          'easy',
+          textLength,
+        );
+        expect(generateSpy).toHaveBeenCalledTimes(calls);
+      },
+    );
+
+    it('should check the current step on start', async () => {
+      const service = internals(appController['appService']);
+      const generateSpy = jest.spyOn(service, 'generate').mockResolvedValue({
+        aiResponse: {
+          currentStep: step(long),
+          nextSteps: [step(short), step(short), step(short)],
+        },
+        cost: 1,
+      });
+
+      await service.generateSteps(
+        'cached',
+        'system',
+        'user',
+        'start',
+        'easy',
+        'short',
+      );
+      expect(generateSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('should truncate at a sentence end when the retry is still too long', async () => {
+      const service = internals(appController['appService']);
+      jest.spyOn(service, 'generate').mockResolvedValue({
+        aiResponse: {
+          currentStep: step(long),
+          nextSteps: [step(long), step(short), step(long)],
+        },
+        cost: 1,
+      });
+
+      const { aiResponse } = await service.generateSteps(
+        'cached',
+        'system',
+        'user',
+        'start',
+        'easy',
+        'short',
+      );
+      const descs = [
+        aiResponse.currentStep!.desc,
+        ...aiResponse.nextSteps.map((s) => s.desc),
+      ];
+      descs.forEach((desc) => {
+        expect(desc.length).toBeLessThanOrEqual(SHORT_DESC_MAX);
+        expect(desc.endsWith('.')).toBe(true);
+      });
+      expect(aiResponse.nextSteps[1].desc).toBe(short);
     });
   });
 });

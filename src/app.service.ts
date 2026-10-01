@@ -55,6 +55,19 @@ const MAX_DEATHS: Record<Difficulty, number> = {
   'super-hard': 2,
 };
 
+export type TextLength = 'normal' | 'short';
+
+export const TEXT_LENGTHS: TextLength[] = ['normal', 'short'];
+
+export const SHORT_DESC_MAX = 980;
+
+const TEXT_LENGTH_RULES: Record<TextLength, string> = {
+  normal: '',
+  short: `\n\n## Text length: short
+- Every "desc" MUST be at most ${SHORT_DESC_MAX} characters, spaces and punctuation included
+- Favour a few vivid sentences over long descriptions`,
+};
+
 export interface Player {
   name: string;
   info?: string;
@@ -69,6 +82,7 @@ export interface Game {
   nextSteps: Step[];
   players?: Player[];
   difficulty?: Difficulty;
+  textLength?: TextLength;
 }
 
 export interface ModelsResponse {
@@ -248,9 +262,10 @@ export class AppService implements OnModuleInit {
     language: string = 'fr',
     players?: Partial<Player>[],
     difficulty: Difficulty = 'easy',
+    textLength: TextLength = 'normal',
   ): Promise<Game> {
     this.logger.log(
-      `Starting new game with story: ${story} (difficulty: ${difficulty})`,
+      `Starting new game with story: ${story} (difficulty: ${difficulty}, text length: ${textLength})`,
     );
 
     // Load story content from stories.json
@@ -342,7 +357,7 @@ ${
     const systemPrompt = `${cachedStoryInstructions}${playersSection}
 
 ## Difficulty: ${difficulty}
-${DIFFICULTY_RULES[difficulty]}
+${DIFFICULTY_RULES[difficulty]}${TEXT_LENGTH_RULES[textLength]}
 
 ## Your Task
 Generate the initial state of the adventure as a JSON response with:
@@ -391,6 +406,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         'Initialize the adventure',
         'start',
         difficulty,
+        textLength,
       );
 
       const newGame: Game = {
@@ -403,6 +419,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         nextSteps: this.normalizeSteps(aiResponse.nextSteps),
         players: validPlayers,
         difficulty,
+        textLength,
       };
 
       this.writeGame(newGame);
@@ -581,13 +598,84 @@ ${ENDING_RULE}${playerNameReminder}`;
       : null;
   }
 
-  // Regenerates once when the model ignores the difficulty limits
-  private async generateSteps<T extends { nextSteps: Step[] }>(
+  private textLengthViolation(
+    steps: Step[],
+    textLength: TextLength,
+  ): string | null {
+    if (textLength !== 'short') {
+      return null;
+    }
+    const lengths = steps
+      .map((s) => s?.desc?.length ?? 0)
+      .filter((length) => length > SHORT_DESC_MAX);
+    return lengths.length > 0
+      ? `${lengths.length} "desc" fields exceed ${SHORT_DESC_MAX} characters (${lengths.join(', ')})`
+      : null;
+  }
+
+  private stepsViolation(
+    response: { currentStep?: Step; nextSteps: Step[] },
+    difficulty: Difficulty,
+    textLength: TextLength,
+  ): string | null {
+    const steps = [response.currentStep, ...(response.nextSteps ?? [])].filter(
+      (s): s is Step => !!s,
+    );
+    const violations = [
+      this.difficultyViolation(response.nextSteps, difficulty),
+      this.textLengthViolation(steps, textLength),
+    ].filter((v): v is string => !!v);
+    return violations.length > 0 ? violations.join('; ') : null;
+  }
+
+  // Cuts at the last sentence end that fits, or the last space as a fallback
+  private truncateDesc(desc: string): string {
+    if (desc.length <= SHORT_DESC_MAX) {
+      return desc;
+    }
+    const head = desc.slice(0, SHORT_DESC_MAX);
+    const sentenceEnd = Math.max(
+      head.lastIndexOf('. '),
+      head.lastIndexOf('! '),
+      head.lastIndexOf('? '),
+      head.lastIndexOf('… '),
+    );
+    if (sentenceEnd > 0) {
+      return head.slice(0, sentenceEnd + 1);
+    }
+    const lastSpace = head.lastIndexOf(' ');
+    return lastSpace > 0 ? `${head.slice(0, lastSpace - 1)}…` : head;
+  }
+
+  private enforceTextLength<
+    T extends { currentStep?: Step; nextSteps: Step[] },
+  >(response: T, textLength: TextLength): T {
+    if (textLength !== 'short') {
+      return response;
+    }
+    const truncate = (step: Step): Step => ({
+      ...step,
+      desc: this.truncateDesc(step.desc ?? ''),
+    });
+    return {
+      ...response,
+      ...(response.currentStep && {
+        currentStep: truncate(response.currentStep),
+      }),
+      nextSteps: (response.nextSteps ?? []).map(truncate),
+    };
+  }
+
+  // Regenerates once when the model ignores the difficulty or length limits
+  private async generateSteps<
+    T extends { currentStep?: Step; nextSteps: Step[] },
+  >(
     cachedStoryInstructions: string,
     systemPrompt: string,
     userMessage: string,
     context: string,
     difficulty: Difficulty,
+    textLength: TextLength,
   ): Promise<{ aiResponse: T; cost: number }> {
     const first = await this.generate<T>(
       cachedStoryInstructions,
@@ -595,34 +683,37 @@ ${ENDING_RULE}${playerNameReminder}`;
       userMessage,
       context,
     );
-    const violation = this.difficultyViolation(
-      first.aiResponse.nextSteps,
+    const violation = this.stepsViolation(
+      first.aiResponse,
       difficulty,
+      textLength,
     );
     if (!violation) {
       return first;
     }
 
-    this.logger.warn(
-      `Difficulty violation in ${context}, retrying: ${violation}`,
-    );
+    this.logger.warn(`Rule violation in ${context}, retrying: ${violation}`);
     const retry = await this.generate<T>(
       cachedStoryInstructions,
       systemPrompt,
-      `${userMessage}\n\nYour previous answer broke the difficulty rules: ${violation}. Regenerate the full JSON respecting them.`,
+      `${userMessage}\n\nYour previous answer broke the rules: ${violation}. Regenerate the full JSON respecting them.`,
       context,
     );
-    const retryViolation = this.difficultyViolation(
-      retry.aiResponse.nextSteps,
+    const retryViolation = this.stepsViolation(
+      retry.aiResponse,
       difficulty,
+      textLength,
     );
     if (retryViolation) {
       this.logger.warn(
-        `Difficulty violation persists in ${context}, accepting: ${retryViolation}`,
+        `Rule violation persists in ${context}, accepting: ${retryViolation}`,
       );
     }
 
-    return { aiResponse: retry.aiResponse, cost: first.cost + retry.cost };
+    return {
+      aiResponse: this.enforceTextLength(retry.aiResponse, textLength),
+      cost: first.cost + retry.cost,
+    };
   }
 
   private getGame(gameId: string): Game {
@@ -1007,6 +1098,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     const game = this.getGame(gameId);
     const language = game.language;
     const difficulty = game.difficulty ?? 'easy';
+    const textLength = game.textLength ?? 'normal';
     const players = game.players || [];
     const playerNameReminder =
       players.length === 0
@@ -1102,7 +1194,7 @@ ${storyContent}
     const systemPrompt = `${cachedStoryInstructions}
 
 ## Difficulty: ${difficulty}
-${DIFFICULTY_RULES[difficulty]}
+${DIFFICULTY_RULES[difficulty]}${TEXT_LENGTH_RULES[textLength]}
 
 ## Story Recap
 ${game.previously}
@@ -1163,6 +1255,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         `The player chose: ${game.currentStep.options[choiceIndex]}`,
         'move',
         difficulty,
+        textLength,
       );
 
       // Use the exact Step from the previous nextSteps as the new currentStep

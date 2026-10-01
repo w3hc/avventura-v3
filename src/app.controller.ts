@@ -163,7 +163,7 @@ class EditStoryDto {
   updates: Partial<Omit<StoryData, 'created_at'>>;
 }
 
-class AddCreditsDto {
+export class AddCreditsDto {
   @ApiProperty({
     description: 'The slug of the story to top up',
     example: 'montpellier',

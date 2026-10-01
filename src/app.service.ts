@@ -13,7 +13,7 @@ import {
   mkdirSync,
 } from 'fs';
 import { join } from 'path';
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -68,6 +68,20 @@ const TEXT_LENGTH_RULES: Record<TextLength, string> = {
 - Favour a few vivid sentences over long descriptions`,
 };
 
+const MODEL = 'claude-sonnet-5-5';
+
+// USD per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing
+const PRICE_PER_MTOK = {
+  input: 2.0,
+  cacheWrite: 2.5,
+  cacheRead: 0.2,
+  output: 10.0,
+};
+
+export const DEFAULT_CREDITS = 100;
+
+const roundUsd = (amount: number): number => parseFloat(amount.toFixed(6));
+
 export interface Player {
   name: string;
   info?: string;
@@ -83,6 +97,7 @@ export interface Game {
   players?: Player[];
   difficulty?: Difficulty;
   textLength?: TextLength;
+  spent?: number;
 }
 
 export interface ModelsResponse {
@@ -111,6 +126,7 @@ export interface StoryData {
   updated_at: string;
   sessions?: number;
   requests?: number;
+  credits?: number;
 }
 
 @Injectable()
@@ -195,6 +211,35 @@ export class AppService implements OnModuleInit {
     } catch (error) {
       this.logger.error(
         `Failed to write cost entry: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
+  // Adds delta (USD) to a story's credits, counting a missing key as DEFAULT_CREDITS
+  private updateStoryCredits(slug: string, delta: number): number {
+    const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+    const stories = JSON.parse(
+      readFileSync(storiesPath, 'utf-8'),
+    ) as StoryData[];
+    const story = stories.find((s) => s.slug === slug);
+    if (!story) {
+      throw new HttpException('Story not found', HttpStatus.NOT_FOUND);
+    }
+
+    story.credits = roundUsd((story.credits ?? DEFAULT_CREDITS) + delta);
+    writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
+    return story.credits;
+  }
+
+  private chargeStory(slug: string, cost: number): void {
+    try {
+      const credits = this.updateStoryCredits(slug, -roundUsd(cost));
+      this.logger.debug(
+        `Charged $${roundUsd(cost)} to story ${slug}, credits left: $${credits}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to charge story ${slug}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -420,10 +465,12 @@ ${ENDING_RULE}${playerNameReminder}`;
         players: validPlayers,
         difficulty,
         textLength,
+        spent: roundUsd(totalCost),
       };
 
       this.writeGame(newGame);
       this.writeCost(newGame.id, totalCost);
+      this.chargeStory(story, totalCost);
 
       this.logger.log(`Created new game with ID: ${newGame.id}`);
       return newGame;
@@ -474,8 +521,9 @@ ${ENDING_RULE}${playerNameReminder}`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: MODEL,
         max_tokens: 4096,
+        thinking: { type: 'between_tools' },
         // Use prompt caching: split system prompt into cacheable and dynamic parts
         system: [
           {
@@ -527,15 +575,20 @@ ${ENDING_RULE}${playerNameReminder}`;
       const cacheRead = data.usage.cache_read_input_tokens || 0;
       const regularInput = data.usage.input_tokens; // Already excludes cached tokens
 
-      const inputCost = (regularInput / 1_000_000) * 3.0;
-      const cacheWriteCost = (cacheWrite / 1_000_000) * 3.75; // 25% more than base
-      const cacheReadCost = (cacheRead / 1_000_000) * 0.3; // 90% discount
-      const outputCost = (data.usage.output_tokens / 1_000_000) * 15.0;
+      const inputCost = (regularInput / 1_000_000) * PRICE_PER_MTOK.input;
+      const cacheWriteCost =
+        (cacheWrite / 1_000_000) * PRICE_PER_MTOK.cacheWrite;
+      const cacheReadCost = (cacheRead / 1_000_000) * PRICE_PER_MTOK.cacheRead;
+      const outputCost =
+        (data.usage.output_tokens / 1_000_000) * PRICE_PER_MTOK.output;
       totalCost = inputCost + cacheWriteCost + cacheReadCost + outputCost;
+      const savings =
+        (cacheRead / 1_000_000) *
+        (PRICE_PER_MTOK.input - PRICE_PER_MTOK.cacheRead);
 
       this.logger.log(
         `API Usage - Regular: ${regularInput}, CacheWrite: ${cacheWrite}, CacheRead: ${cacheRead}, Output: ${data.usage.output_tokens} | ` +
-          `Cost: $${totalCost.toFixed(6)} (savings: ${cacheRead > 0 ? `$${((cacheRead / 1_000_000) * 2.7).toFixed(6)}` : '$0'})`,
+          `Cost: $${totalCost.toFixed(6)} (savings: $${savings.toFixed(6)})`,
       );
     }
 
@@ -732,7 +785,8 @@ ${ENDING_RULE}${playerNameReminder}`;
     previously: string,
     currentStep: Step,
     nextSteps: Step[],
-  ): void {
+    cost = 0,
+  ): Game {
     const game = this.readGame(gameId);
 
     if (!game) {
@@ -742,8 +796,10 @@ ${ENDING_RULE}${playerNameReminder}`;
     game.previously = previously;
     game.currentStep = currentStep;
     game.nextSteps = nextSteps;
+    game.spent = roundUsd((game.spent ?? 0) + roundUsd(cost));
     this.writeGame(game);
     this.logger.log(`Updated game state for ID: ${gameId}`);
+    return game;
   }
 
   async getModels(): Promise<ModelsResponse> {
@@ -894,8 +950,9 @@ ${ENDING_RULE}${playerNameReminder}`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
+          model: MODEL,
           max_tokens: 8192,
+          thinking: { type: 'between_tools' },
           system: instructions,
           messages,
         }),
@@ -993,6 +1050,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         is_active: true,
         sessions: 0,
         requests: 0,
+        credits: DEFAULT_CREDITS,
       };
 
       // Add the new story to the array
@@ -1086,10 +1144,44 @@ ${ENDING_RULE}${playerNameReminder}`;
     return updatedStory;
   }
 
+  addCredits(
+    slug: string,
+    amount: number,
+    password: string,
+  ): { added: number; credits: number } {
+    const expected = process.env.CREDITS_PASSWORD;
+    if (!expected) {
+      this.logger.error('CREDITS_PASSWORD is not configured');
+      throw new HttpException(
+        'CREDITS_PASSWORD is not configured',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    const given = Buffer.from(password);
+    const wanted = Buffer.from(expected);
+    if (given.length !== wanted.length || !timingSafeEqual(given, wanted)) {
+      this.logger.warn(`Rejected credits top-up for story ${slug}`);
+      throw new HttpException('Invalid password', HttpStatus.UNAUTHORIZED);
+    }
+
+    const added = roundUsd(amount);
+    const credits = this.updateStoryCredits(slug, added);
+    this.logger.log(
+      `Added $${added} to story ${slug}, credits now: $${credits}`,
+    );
+    return { added, credits };
+  }
+
   async move(
     gameId: string,
     choiceIndex: number,
-  ): Promise<{ previously: string; currentStep: Step; nextSteps: Step[] }> {
+  ): Promise<{
+    previously: string;
+    currentStep: Step;
+    nextSteps: Step[];
+    spent: number;
+  }> {
     this.logger.log(
       `Processing move request for game ${gameId} with choice index: ${choiceIndex}`,
     );
@@ -1132,12 +1224,18 @@ ${ENDING_RULE}${playerNameReminder}`;
 
     // An ending has nothing left to generate: skip the AI call
     if (this.isEnding(newCurrentStep)) {
-      this.updateGame(gameId, game.previously, newCurrentStep, []);
+      const ended = this.updateGame(
+        gameId,
+        game.previously,
+        newCurrentStep,
+        [],
+      );
       this.logger.log(`Game ${gameId} ended with ${newCurrentStep.action}`);
       return {
         previously: game.previously,
         currentStep: newCurrentStep,
         nextSteps: [],
+        spent: ended.spent ?? 0,
       };
     }
 
@@ -1264,13 +1362,21 @@ ${ENDING_RULE}${playerNameReminder}`;
       const nextSteps = this.normalizeSteps(aiResponse.nextSteps);
 
       // Update the game with new state
-      this.updateGame(gameId, aiResponse.previously, newCurrentStep, nextSteps);
+      const updated = this.updateGame(
+        gameId,
+        aiResponse.previously,
+        newCurrentStep,
+        nextSteps,
+        totalCost,
+      );
       this.writeCost(gameId, totalCost);
+      this.chargeStory(game.story, totalCost);
 
       return {
         previously: aiResponse.previously,
         currentStep: newCurrentStep,
         nextSteps,
+        spent: updated.spent ?? 0,
       };
     } catch (error) {
       if (error instanceof HttpException) {

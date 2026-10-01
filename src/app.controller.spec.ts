@@ -1,13 +1,17 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { AppController, StartDto } from './app.controller';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { AddCreditsDto, AppController, StartDto } from './app.controller';
 import {
   AppService,
   Difficulty,
   Game,
   SHORT_DESC_MAX,
   Step,
+  StoryData,
   TextLength,
 } from './app.service';
 import * as modelsData from '../models-infomaniak.json';
@@ -302,6 +306,7 @@ describe('AppController', () => {
             action: 'continue',
           },
         ],
+        spent: 0.012,
       };
 
       const moveSpy = jest
@@ -892,6 +897,129 @@ describe('AppController', () => {
         expect(desc.endsWith('.')).toBe(true);
       });
       expect(aiResponse.nextSteps[1].desc).toBe(short);
+    });
+  });
+
+  describe('credits', () => {
+    const password = 'secret';
+    let storiesPath: string;
+
+    const internals = (service: AppService) =>
+      service as unknown as {
+        chargeStory: (slug: string, cost: number) => void;
+        readGame: (gameId: string) => Game | null;
+        writeGame: (game: Game) => void;
+        updateGame: (
+          gameId: string,
+          previously: string,
+          currentStep: Step,
+          nextSteps: Step[],
+          cost?: number,
+        ) => Game;
+      };
+
+    const readStories = () =>
+      JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
+
+    const step: Step = { desc: 'A step', options: ['A'], action: 'continue' };
+
+    beforeEach(() => {
+      const dir = mkdtempSync(join(tmpdir(), 'avventura-'));
+      mkdirSync(join(dir, 'stories'));
+      storiesPath = join(dir, 'stories', 'stories.json');
+      writeFileSync(
+        storiesPath,
+        JSON.stringify([{ slug: 'funded', credits: 10 }, { slug: 'legacy' }]),
+      );
+      jest.spyOn(process, 'cwd').mockReturnValue(dir);
+      process.env.CREDITS_PASSWORD = password;
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      delete process.env.CREDITS_PASSWORD;
+    });
+
+    it('should add credits and return the new balance', () => {
+      const result = appController.addCredits({
+        slug: 'funded',
+        amount: 5,
+        password,
+      });
+      expect(result).toEqual({ added: 5, credits: 15 });
+      expect(readStories()[0].credits).toBe(15);
+    });
+
+    it('should start a story without credits from the default', () => {
+      const result = appController.addCredits({
+        slug: 'legacy',
+        amount: 5,
+        password,
+      });
+      expect(result).toEqual({ added: 5, credits: 105 });
+      expect(readStories()[1].credits).toBe(105);
+    });
+
+    it('should reject a wrong password', () => {
+      expect(() =>
+        appController.addCredits({ slug: 'funded', amount: 5, password: 'x' }),
+      ).toThrow('Invalid password');
+      expect(readStories()[0].credits).toBe(10);
+    });
+
+    it('should refuse top-ups when no password is configured', () => {
+      delete process.env.CREDITS_PASSWORD;
+      expect(() =>
+        appController.addCredits({ slug: 'funded', amount: 5, password }),
+      ).toThrow('CREDITS_PASSWORD is not configured');
+    });
+
+    it('should return 404 for an unknown story', () => {
+      expect(() =>
+        appController.addCredits({ slug: 'missing', amount: 5, password }),
+      ).toThrow('Story not found');
+    });
+
+    it.each([0, -5, 'five'])('should reject amount %p', async (amount) => {
+      const dto = plainToInstance(AddCreditsDto, {
+        slug: 'funded',
+        amount,
+        password,
+      });
+      expect(await validate(dto)).not.toHaveLength(0);
+    });
+
+    it('should deduct the request cost from the story', () => {
+      internals(appController['appService']).chargeStory('funded', 0.0123456);
+      internals(appController['appService']).chargeStory('legacy', 0.5);
+      const [funded, legacy] = readStories();
+      expect(funded.credits).toBe(9.987654);
+      expect(legacy.credits).toBe(99.5);
+    });
+
+    it.each([
+      [0.5, 0.75],
+      [undefined, 0.25],
+    ])('should add the cost to a game spent of %p', (spent, expected) => {
+      const service = internals(appController['appService']);
+      const game = {
+        id: 'GAME',
+        story: 'funded',
+        previously: '',
+        currentStep: step,
+        nextSteps: [],
+        spent,
+      } as unknown as Game;
+      jest.spyOn(service, 'readGame').mockReturnValue(game);
+      const writeSpy = jest
+        .spyOn(service, 'writeGame')
+        .mockImplementation(() => undefined);
+
+      const updated = service.updateGame('GAME', 'recap', step, [], 0.25);
+      expect(updated.spent).toBe(expected);
+      expect(writeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ spent: expected }),
+      );
     });
   });
 });

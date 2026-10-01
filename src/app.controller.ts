@@ -298,6 +298,7 @@ export class AppController {
     status: 201,
     description: 'New game created successfully',
   })
+  @ApiResponse({ status: 402, description: 'Story is out of credits' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   async start(@Body() body?: StartDto): Promise<Game> {
     this.logger.log('POST /start endpoint called');
@@ -340,6 +341,7 @@ export class AppController {
     description: 'Updated game state with new story progression',
   })
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
+  @ApiResponse({ status: 402, description: 'Story is out of credits' })
   @ApiResponse({ status: 404, description: 'Game not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })

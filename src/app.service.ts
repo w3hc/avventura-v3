@@ -231,6 +231,16 @@ export class AppService implements OnModuleInit {
     return story.credits;
   }
 
+  private assertCredits(slug: string, credits: number): void {
+    if (credits <= 0) {
+      this.logger.warn(`Story ${slug} is out of credits ($${credits})`);
+      throw new HttpException(
+        'Not enough credits',
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+  }
+
   private chargeStory(slug: string, cost: number): void {
     try {
       const credits = this.updateStoryCredits(slug, -roundUsd(cost));
@@ -315,6 +325,7 @@ export class AppService implements OnModuleInit {
 
     // Load story content from stories.json
     let storyContent: string;
+    let storyCredits: number;
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
       const storiesData = JSON.parse(
@@ -327,6 +338,7 @@ export class AppService implements OnModuleInit {
       }
 
       storyContent = storyObj.content;
+      storyCredits = storyObj.credits ?? DEFAULT_CREDITS;
       this.logger.log(`Story content loaded from ${story}`);
     } catch (error) {
       this.logger.error(
@@ -337,6 +349,7 @@ export class AppService implements OnModuleInit {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+    this.assertCredits(story, storyCredits);
 
     // Use prompt caching for static story instructions (cache_control)
     const cachedStoryInstructions = `# INSTRUCTIONS FOR THE MULTILINGUAL ADVENTURE
@@ -1241,6 +1254,7 @@ ${ENDING_RULE}${playerNameReminder}`;
 
     // Load story content from stories.json
     let storyContent: string;
+    let storyCredits: number;
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
       const storiesData = JSON.parse(
@@ -1253,6 +1267,7 @@ ${ENDING_RULE}${playerNameReminder}`;
       }
 
       storyContent = storyObj.content;
+      storyCredits = storyObj.credits ?? DEFAULT_CREDITS;
       this.logger.log(`Story content loaded from ${game.story}`);
     } catch (error) {
       this.logger.error(
@@ -1263,6 +1278,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+    this.assertCredits(game.story, storyCredits);
 
     // Use prompt caching for static story instructions (cache_control)
     const cachedStoryInstructions = `# STORY INSTRUCTIONS

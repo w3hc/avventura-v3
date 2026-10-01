@@ -53,7 +53,15 @@ In `short` mode, a `desc` over the limit triggers one regeneration; if it is sti
 
 Each story in `stories/stories.json` has a `credits` balance in USD, set to `100` when the story is created. A story without the key counts as having `100`.
 
-Every AI call made by `POST /start` and `POST /move` is priced from the tokens it used (input, cache writes, cache reads and output, at `claude-sonnet-5-5` rates). That amount is subtracted from the story's `credits` and added to the game's `spent` key in `games/<id>.json`. `POST /move` returns the game's `spent` total. Play is not blocked when credits run out: the balance just goes negative.
+Every AI call made by `POST /start` and `POST /move` is priced from the tokens it used (input, cache writes, cache reads and output, at `claude-sonnet-5-5` rates). That amount is subtracted from the story's `credits` and added to the game's `spent` key in `games/<id>.json`. `POST /move` returns the game's `spent` total.
+
+When a story's `credits` is `0` or below, `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
+
+To give `100` credits to every story that has no `credits` key yet (existing balances are left unchanged):
+
+```bash
+pnpm credits:init
+```
 
 Top up a story with `POST /stories/credits`:
 

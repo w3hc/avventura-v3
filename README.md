@@ -26,6 +26,18 @@ End-to-end test:
 pnpm test:e2e
 ```
 
+## Difficulty
+
+`POST /start` takes an optional `difficulty`:
+
+| Level | Deadly options per step | Feel |
+| --- | --- | --- |
+| `easy` (default) | 0 | setbacks only, plenty of resources |
+| `hard` | ≤ 1 | danger is foreshadowed, limited resources |
+| `super-hard` | ≤ 2 | subtle or misleading warnings, scarce resources |
+
+A step with `action` set to `death` or `victory` ends the game: it has no options, and further moves return 400.
+
 ## License
 
 GPL-3.0

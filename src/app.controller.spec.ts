@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { AppController, StartDto } from './app.controller';
+import { AppService, Difficulty, Game, Step } from './app.service';
 import * as modelsData from '../models-infomaniak.json';
 
 describe('AppController', () => {
@@ -605,6 +607,146 @@ describe('AppController', () => {
         appController.editStory({ slug: mockSlug, updates: mockUpdates }),
       ).toThrow('Story not found');
       expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+    });
+  });
+
+  describe('difficulty', () => {
+    const step = (action: string): Step => ({
+      desc: action,
+      options: action === 'death' ? [] : ['A', 'B', 'C'],
+      action,
+    });
+
+    const internals = (service: AppService) =>
+      service as unknown as {
+        readGame: (id: string) => Game | null;
+        writeGame: (game: Game) => void;
+        generate: (...args: unknown[]) => Promise<unknown>;
+        generateSteps: (
+          cached: string,
+          system: string,
+          user: string,
+          context: string,
+          difficulty: Difficulty,
+        ) => Promise<{ aiResponse: { nextSteps: Step[] }; cost: number }>;
+      };
+
+    const game = (currentStep: Step, nextSteps: Step[]): Game => ({
+      id: 'ABCDEFGH',
+      story: 'montpellier',
+      language: 'en',
+      previously: 'First step.',
+      currentStep,
+      nextSteps,
+      difficulty: 'hard',
+    });
+
+    it('should accept a known difficulty', async () => {
+      const dto = plainToInstance(StartDto, { difficulty: 'super-hard' });
+      expect(await validate(dto)).toHaveLength(0);
+    });
+
+    it('should reject an unknown difficulty', async () => {
+      const dto = plainToInstance(StartDto, { difficulty: 'medium' });
+      const errors = await validate(dto);
+      expect(errors[0].property).toBe('difficulty');
+    });
+
+    it('should pass the difficulty to the service', async () => {
+      const startSpy = jest
+        .spyOn(appController['appService'], 'start')
+        .mockResolvedValue({} as Game);
+
+      await appController.start({ difficulty: 'hard' });
+      expect(startSpy).toHaveBeenCalledWith(
+        'montpellier',
+        'fr',
+        undefined,
+        'hard',
+      );
+    });
+
+    it('should refuse a move on a finished game', async () => {
+      const service = internals(appController['appService']);
+      jest.spyOn(service, 'readGame').mockReturnValue(game(step('death'), []));
+
+      await expect(
+        appController.move({ gameId: 'ABCDEFGH', choiceIndex: 1 }),
+      ).rejects.toThrow('Game is over');
+    });
+
+    it('should end the game without calling the AI', async () => {
+      const service = internals(appController['appService']);
+      jest
+        .spyOn(service, 'readGame')
+        .mockReturnValue(
+          game(step('start'), [
+            step('death'),
+            step('continue'),
+            step('continue'),
+          ]),
+        );
+      jest.spyOn(service, 'writeGame').mockImplementation(() => undefined);
+      const generateSpy = jest.spyOn(service, 'generate');
+
+      const result = await appController.move({
+        gameId: 'ABCDEFGH',
+        choiceIndex: 1,
+      });
+      expect(result.currentStep.action).toBe('death');
+      expect(result.nextSteps).toEqual([]);
+      expect(generateSpy).not.toHaveBeenCalled();
+    });
+
+    it.each<[Difficulty, number, number]>([
+      ['easy', 0, 1],
+      ['easy', 1, 2],
+      ['hard', 1, 1],
+      ['hard', 2, 2],
+      ['super-hard', 2, 1],
+      ['super-hard', 3, 2],
+    ])(
+      'on %s with %i deaths should call the model %i time(s)',
+      async (difficulty, deaths, calls) => {
+        const service = internals(appController['appService']);
+        const nextSteps = [0, 1, 2].map((i) =>
+          step(i < deaths ? 'death' : 'continue'),
+        );
+        const generateSpy = jest
+          .spyOn(service, 'generate')
+          .mockResolvedValue({ aiResponse: { nextSteps }, cost: 1 });
+
+        const { cost } = await service.generateSteps(
+          'cached',
+          'system',
+          'user',
+          'move',
+          difficulty,
+        );
+        expect(generateSpy).toHaveBeenCalledTimes(calls);
+        expect(cost).toBe(calls);
+      },
+    );
+
+    it('should keep the retry when it respects the limits', async () => {
+      const service = internals(appController['appService']);
+      const safe = [step('continue'), step('continue'), step('continue')];
+      jest
+        .spyOn(service, 'generate')
+        .mockResolvedValueOnce({
+          aiResponse: { nextSteps: [step('death'), ...safe.slice(1)] },
+          cost: 1,
+        })
+        .mockResolvedValueOnce({ aiResponse: { nextSteps: safe }, cost: 1 });
+
+      const { aiResponse } = await service.generateSteps(
+        'cached',
+        'system',
+        'user',
+        'move',
+        'easy',
+      );
+      expect(aiResponse.nextSteps).toEqual(safe);
     });
   });
 });

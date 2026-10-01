@@ -54,7 +54,7 @@ class PlayerDto implements Partial<Player> {
   info?: string;
 }
 
-class StartDto {
+export class StartDto {
   @ApiProperty({
     description: 'The story slug (e.g., "montpellier", "forest", "sailing")',
     required: false,

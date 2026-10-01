@@ -22,6 +22,7 @@ import {
   IsOptional,
   IsArray,
   IsIn,
+  IsPositive,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -162,6 +163,31 @@ class EditStoryDto {
   updates: Partial<Omit<StoryData, 'created_at'>>;
 }
 
+class AddCreditsDto {
+  @ApiProperty({
+    description: 'The slug of the story to top up',
+    example: 'montpellier',
+  })
+  @IsString()
+  @IsNotEmpty()
+  slug: string;
+
+  @ApiProperty({
+    description: 'The amount to add, in USD',
+    example: 20,
+  })
+  @IsNumber()
+  @IsPositive()
+  amount: number;
+
+  @ApiProperty({
+    description: 'The credits password (CREDITS_PASSWORD)',
+  })
+  @IsString()
+  @IsNotEmpty()
+  password: string;
+}
+
 @Controller()
 export class AppController {
   private readonly logger = new Logger(AppController.name);
@@ -241,6 +267,25 @@ export class AppController {
   editStory(@Body() body: EditStoryDto): Promise<StoryData> {
     this.logger.log('POST /stories/edit endpoint called');
     return Promise.resolve(this.appService.editStory(body.slug, body.updates));
+  }
+
+  @Post('stories/credits')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Add credits (USD) to a story',
+  })
+  @ApiBody({ type: AddCreditsDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Amount added and the new credits balance',
+  })
+  @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
+  @ApiResponse({ status: 401, description: 'Invalid password' })
+  @ApiResponse({ status: 404, description: 'Story not found' })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  addCredits(@Body() body: AddCreditsDto): { added: number; credits: number } {
+    this.logger.log('POST /stories/credits endpoint called');
+    return this.appService.addCredits(body.slug, body.amount, body.password);
   }
 
   @Post('start')

@@ -13,7 +13,7 @@ import {
   mkdirSync,
 } from 'fs';
 import { join } from 'path';
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -1142,6 +1142,35 @@ ${ENDING_RULE}${playerNameReminder}`;
     }
 
     return updatedStory;
+  }
+
+  addCredits(
+    slug: string,
+    amount: number,
+    password: string,
+  ): { added: number; credits: number } {
+    const expected = process.env.CREDITS_PASSWORD;
+    if (!expected) {
+      this.logger.error('CREDITS_PASSWORD is not configured');
+      throw new HttpException(
+        'CREDITS_PASSWORD is not configured',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+
+    const given = Buffer.from(password);
+    const wanted = Buffer.from(expected);
+    if (given.length !== wanted.length || !timingSafeEqual(given, wanted)) {
+      this.logger.warn(`Rejected credits top-up for story ${slug}`);
+      throw new HttpException('Invalid password', HttpStatus.UNAUTHORIZED);
+    }
+
+    const added = roundUsd(amount);
+    const credits = this.updateStoryCredits(slug, added);
+    this.logger.log(
+      `Added $${added} to story ${slug}, credits now: $${credits}`,
+    );
+    return { added, credits };
   }
 
   async move(

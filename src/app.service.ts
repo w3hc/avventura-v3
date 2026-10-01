@@ -68,6 +68,16 @@ const TEXT_LENGTH_RULES: Record<TextLength, string> = {
 - Favour a few vivid sentences over long descriptions`,
 };
 
+const MODEL = 'claude-sonnet-5-5';
+
+// USD per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing
+const PRICE_PER_MTOK = {
+  input: 2.0,
+  cacheWrite: 2.5,
+  cacheRead: 0.2,
+  output: 10.0,
+};
+
 export interface Player {
   name: string;
   info?: string;
@@ -474,8 +484,9 @@ ${ENDING_RULE}${playerNameReminder}`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: MODEL,
         max_tokens: 4096,
+        thinking: { type: 'between_tools' },
         // Use prompt caching: split system prompt into cacheable and dynamic parts
         system: [
           {
@@ -527,15 +538,20 @@ ${ENDING_RULE}${playerNameReminder}`;
       const cacheRead = data.usage.cache_read_input_tokens || 0;
       const regularInput = data.usage.input_tokens; // Already excludes cached tokens
 
-      const inputCost = (regularInput / 1_000_000) * 3.0;
-      const cacheWriteCost = (cacheWrite / 1_000_000) * 3.75; // 25% more than base
-      const cacheReadCost = (cacheRead / 1_000_000) * 0.3; // 90% discount
-      const outputCost = (data.usage.output_tokens / 1_000_000) * 15.0;
+      const inputCost = (regularInput / 1_000_000) * PRICE_PER_MTOK.input;
+      const cacheWriteCost =
+        (cacheWrite / 1_000_000) * PRICE_PER_MTOK.cacheWrite;
+      const cacheReadCost = (cacheRead / 1_000_000) * PRICE_PER_MTOK.cacheRead;
+      const outputCost =
+        (data.usage.output_tokens / 1_000_000) * PRICE_PER_MTOK.output;
       totalCost = inputCost + cacheWriteCost + cacheReadCost + outputCost;
+      const savings =
+        (cacheRead / 1_000_000) *
+        (PRICE_PER_MTOK.input - PRICE_PER_MTOK.cacheRead);
 
       this.logger.log(
         `API Usage - Regular: ${regularInput}, CacheWrite: ${cacheWrite}, CacheRead: ${cacheRead}, Output: ${data.usage.output_tokens} | ` +
-          `Cost: $${totalCost.toFixed(6)} (savings: ${cacheRead > 0 ? `$${((cacheRead / 1_000_000) * 2.7).toFixed(6)}` : '$0'})`,
+          `Cost: $${totalCost.toFixed(6)} (savings: $${savings.toFixed(6)})`,
       );
     }
 
@@ -894,8 +910,9 @@ ${ENDING_RULE}${playerNameReminder}`;
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
+          model: MODEL,
           max_tokens: 8192,
+          thinking: { type: 'between_tools' },
           system: instructions,
           messages,
         }),

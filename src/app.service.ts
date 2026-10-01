@@ -34,6 +34,21 @@ export const ENDING_ACTIONS = ['death', 'victory'];
 
 const ENDING_RULE = `- A nextStep can end the adventure: set its action to "death" if the choice gets the player killed or irreversibly defeated, or "victory" if it fulfils the story's goal. An ending's "desc" narrates the conclusion and its "options" MUST be an empty array []`;
 
+const DIFFICULTY_RULES: Record<Difficulty, string> = {
+  easy: `- The player can NEVER die or be defeated: NO nextStep may have action "death"
+- Bad choices lead to setbacks, detours or complications, never to an ending
+- Resources, allies and clues are plentiful; the story forgives mistakes
+- Most paths can eventually lead to "victory"`,
+  hard: `- At most ONE of the 3 nextSteps may have action "death"
+- Danger is always foreshadowed: an attentive reader can spot the deadly option from the "desc"
+- Resources, allies and clues are limited; careless choices have lasting consequences
+- Reaching "victory" requires several good choices in a row`,
+  'super-hard': `- Up to TWO of the 3 nextSteps may have action "death"
+- Warnings are subtle or misleading: the safest-looking option is not always safe
+- Resources, allies and clues are scarce; mistakes compound and are rarely recoverable
+- Reaching "victory" requires a consistent run of sharp, well-informed choices`,
+};
+
 export interface Player {
   name: string;
   info?: string;
@@ -319,6 +334,9 @@ ${
               )} by name in every sentence of "desc" and "options" that refers to the player(s)`;
 
     const systemPrompt = `${cachedStoryInstructions}${playersSection}
+
+## Difficulty: ${difficulty}
+${DIFFICULTY_RULES[difficulty]}
 
 ## Your Task
 Generate the initial state of the adventure as a JSON response with:
@@ -913,6 +931,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     // Get the game
     const game = this.getGame(gameId);
     const language = game.language;
+    const difficulty = game.difficulty ?? 'easy';
     const players = game.players || [];
     const playerNameReminder =
       players.length === 0
@@ -1006,6 +1025,9 @@ ${storyContent}
 - Ensure paths remain distinct throughout the story, not converging back together`;
 
     const systemPrompt = `${cachedStoryInstructions}
+
+## Difficulty: ${difficulty}
+${DIFFICULTY_RULES[difficulty]}
 
 ## Story Recap
 ${game.previously}

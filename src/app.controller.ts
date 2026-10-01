@@ -298,9 +298,12 @@ export class AppController {
   @ApiResponse({ status: 404, description: 'Game not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })
-  async move(
-    @Body() body: MoveDto,
-  ): Promise<{ previously: string; currentStep: Step; nextSteps: Step[] }> {
+  async move(@Body() body: MoveDto): Promise<{
+    previously: string;
+    currentStep: Step;
+    nextSteps: Step[];
+    spent: number;
+  }> {
     this.logger.log('POST /move endpoint called');
     return this.appService.move(body.gameId, body.choiceIndex - 1);
   }

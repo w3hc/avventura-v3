@@ -78,6 +78,10 @@ const PRICE_PER_MTOK = {
   output: 10.0,
 };
 
+export const DEFAULT_CREDITS = 100;
+
+const roundUsd = (amount: number): number => parseFloat(amount.toFixed(6));
+
 export interface Player {
   name: string;
   info?: string;
@@ -93,6 +97,7 @@ export interface Game {
   players?: Player[];
   difficulty?: Difficulty;
   textLength?: TextLength;
+  spent?: number;
 }
 
 export interface ModelsResponse {
@@ -121,6 +126,7 @@ export interface StoryData {
   updated_at: string;
   sessions?: number;
   requests?: number;
+  credits?: number;
 }
 
 @Injectable()
@@ -205,6 +211,35 @@ export class AppService implements OnModuleInit {
     } catch (error) {
       this.logger.error(
         `Failed to write cost entry: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
+
+  // Adds delta (USD) to a story's credits, counting a missing key as DEFAULT_CREDITS
+  private updateStoryCredits(slug: string, delta: number): number {
+    const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+    const stories = JSON.parse(
+      readFileSync(storiesPath, 'utf-8'),
+    ) as StoryData[];
+    const story = stories.find((s) => s.slug === slug);
+    if (!story) {
+      throw new HttpException('Story not found', HttpStatus.NOT_FOUND);
+    }
+
+    story.credits = roundUsd((story.credits ?? DEFAULT_CREDITS) + delta);
+    writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
+    return story.credits;
+  }
+
+  private chargeStory(slug: string, cost: number): void {
+    try {
+      const credits = this.updateStoryCredits(slug, -roundUsd(cost));
+      this.logger.debug(
+        `Charged $${roundUsd(cost)} to story ${slug}, credits left: $${credits}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to charge story ${slug}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -430,10 +465,12 @@ ${ENDING_RULE}${playerNameReminder}`;
         players: validPlayers,
         difficulty,
         textLength,
+        spent: roundUsd(totalCost),
       };
 
       this.writeGame(newGame);
       this.writeCost(newGame.id, totalCost);
+      this.chargeStory(story, totalCost);
 
       this.logger.log(`Created new game with ID: ${newGame.id}`);
       return newGame;
@@ -748,7 +785,8 @@ ${ENDING_RULE}${playerNameReminder}`;
     previously: string,
     currentStep: Step,
     nextSteps: Step[],
-  ): void {
+    cost = 0,
+  ): Game {
     const game = this.readGame(gameId);
 
     if (!game) {
@@ -758,8 +796,10 @@ ${ENDING_RULE}${playerNameReminder}`;
     game.previously = previously;
     game.currentStep = currentStep;
     game.nextSteps = nextSteps;
+    game.spent = roundUsd((game.spent ?? 0) + roundUsd(cost));
     this.writeGame(game);
     this.logger.log(`Updated game state for ID: ${gameId}`);
+    return game;
   }
 
   async getModels(): Promise<ModelsResponse> {
@@ -1010,6 +1050,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         is_active: true,
         sessions: 0,
         requests: 0,
+        credits: DEFAULT_CREDITS,
       };
 
       // Add the new story to the array
@@ -1106,7 +1147,12 @@ ${ENDING_RULE}${playerNameReminder}`;
   async move(
     gameId: string,
     choiceIndex: number,
-  ): Promise<{ previously: string; currentStep: Step; nextSteps: Step[] }> {
+  ): Promise<{
+    previously: string;
+    currentStep: Step;
+    nextSteps: Step[];
+    spent: number;
+  }> {
     this.logger.log(
       `Processing move request for game ${gameId} with choice index: ${choiceIndex}`,
     );
@@ -1149,12 +1195,18 @@ ${ENDING_RULE}${playerNameReminder}`;
 
     // An ending has nothing left to generate: skip the AI call
     if (this.isEnding(newCurrentStep)) {
-      this.updateGame(gameId, game.previously, newCurrentStep, []);
+      const ended = this.updateGame(
+        gameId,
+        game.previously,
+        newCurrentStep,
+        [],
+      );
       this.logger.log(`Game ${gameId} ended with ${newCurrentStep.action}`);
       return {
         previously: game.previously,
         currentStep: newCurrentStep,
         nextSteps: [],
+        spent: ended.spent ?? 0,
       };
     }
 
@@ -1281,13 +1333,21 @@ ${ENDING_RULE}${playerNameReminder}`;
       const nextSteps = this.normalizeSteps(aiResponse.nextSteps);
 
       // Update the game with new state
-      this.updateGame(gameId, aiResponse.previously, newCurrentStep, nextSteps);
+      const updated = this.updateGame(
+        gameId,
+        aiResponse.previously,
+        newCurrentStep,
+        nextSteps,
+        totalCost,
+      );
       this.writeCost(gameId, totalCost);
+      this.chargeStory(game.story, totalCost);
 
       return {
         previously: aiResponse.previously,
         currentStep: newCurrentStep,
         nextSteps,
+        spent: updated.spent ?? 0,
       };
     } catch (error) {
       if (error instanceof HttpException) {

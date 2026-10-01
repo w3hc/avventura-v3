@@ -302,6 +302,7 @@ describe('AppController', () => {
             action: 'continue',
           },
         ],
+        spent: 0.012,
       };
 
       const moveSpy = jest

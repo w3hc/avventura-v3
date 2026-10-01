@@ -8,12 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `POST /start` accepts an optional `textLength` (`normal` or `short`, default `normal`), stored on the game ([#31](https://github.com/w3hc/avventura-v3/issues/31)).
+- In `short` mode every step `desc` is at most 980 characters: a prompt rule asks for it, output exceeding it is regenerated once, and a still-too-long `desc` is cut at the last sentence end ([#31](https://github.com/w3hc/avventura-v3/issues/31)).
 - `POST /start` accepts an optional `difficulty` (`easy`, `hard` or `super-hard`, default `easy`), stored on the game ([#29](https://github.com/w3hc/avventura-v3/issues/29)).
 - Steps can end the adventure with `action: "death"` or `"victory"` and no options; `POST /move` on a finished game returns 400 and reaching an ending skips the AI call ([#29](https://github.com/w3hc/avventura-v3/issues/29)).
 - Each difficulty adds prompt rules on deadly options, foreshadowing and scarcity; output exceeding its death limit (0, 1 or 2 per step) is regenerated once ([#29](https://github.com/w3hc/avventura-v3/issues/29)).
 
 ### Changed
 
+- The single retry on broken difficulty rules also covers the text length limit ([#31](https://github.com/w3hc/avventura-v3/issues/31)).
 - `start` and `move` share a single Anthropic call helper ([#29](https://github.com/w3hc/avventura-v3/issues/29)).
 
 - Dependencies bumped to their latest versions: NestJS 12, ESLint 10, TypeScript 6, `@types/node` 26, `@types/supertest` 7, dotenv 18, class-validator 0.15, `@swc/cli` 0.8 and minor bumps ([#27](https://github.com/w3hc/avventura-v3/issues/27)).

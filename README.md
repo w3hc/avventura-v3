@@ -38,6 +38,17 @@ pnpm test:e2e
 
 A step with `action` set to `death` or `victory` ends the game: it has no options, and further moves return 400.
 
+## Text length
+
+`POST /start` takes an optional `textLength`:
+
+| Mode | Step `desc` length |
+| --- | --- |
+| `normal` (default) | no limit |
+| `short` | at most 980 characters, spaces and punctuation included |
+
+In `short` mode, a `desc` over the limit triggers one regeneration; if it is still too long, it is cut at the last sentence end that fits.
+
 ## License
 
 GPL-3.0

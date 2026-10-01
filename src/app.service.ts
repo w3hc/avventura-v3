@@ -211,7 +211,7 @@ export class AppService implements OnModuleInit {
     this.logger.log(`Starting new game with story: ${story}`);
 
     // Load story content from stories.json
-    let storyContent = '';
+    let storyContent: string;
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
       const storiesData = JSON.parse(
@@ -614,7 +614,7 @@ Generate the initial state of the adventure as a JSON response with:
 
   getStory(slug: string): StoryData {
     this.logger.log(`Fetching story with slug: ${slug}`);
-    let stories: StoryData[] = [];
+    let stories: StoryData[];
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
       stories = JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
@@ -641,7 +641,7 @@ Generate the initial state of the adventure as a JSON response with:
     this.logger.log(`Creating new story from prompt: ${prompt}`);
 
     // Read the instruction file
-    let instructions = '';
+    let instructions: string;
     try {
       const instructionPath =
         process.env.AVVENTURA_INSTRUCTION_FILE_PATH ||
@@ -830,7 +830,7 @@ Generate the initial state of the adventure as a JSON response with:
 
     // Read existing stories
     const storiesPath = join(process.cwd(), 'stories', 'stories.json');
-    let stories: StoryData[] = [];
+    let stories: StoryData[];
     try {
       const storiesData = readFileSync(storiesPath, 'utf-8');
       stories = JSON.parse(storiesData) as StoryData[];
@@ -917,7 +917,7 @@ Generate the initial state of the adventure as a JSON response with:
         : game.currentStep;
 
     // Load story content from stories.json
-    let storyContent = '';
+    let storyContent: string;
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
       const storiesData = JSON.parse(

@@ -32,6 +32,8 @@ import {
   Player,
   Step,
   StoryData,
+  TEXT_LENGTHS,
+  TextLength,
 } from './app.service';
 
 class PlayerDto implements Partial<Player> {
@@ -95,6 +97,16 @@ export class StartDto {
   @IsOptional()
   @IsIn(DIFFICULTIES)
   difficulty?: Difficulty;
+
+  @ApiProperty({
+    description: 'How long step descriptions are (short: at most 980 chars)',
+    required: false,
+    enum: TEXT_LENGTHS,
+    default: 'normal',
+  })
+  @IsOptional()
+  @IsIn(TEXT_LENGTHS)
+  textLength?: TextLength;
 }
 
 class MoveDto {
@@ -251,6 +263,7 @@ export class AppController {
       language,
       body?.players,
       body?.difficulty,
+      body?.textLength,
     );
   }
 

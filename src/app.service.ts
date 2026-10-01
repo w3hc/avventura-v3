@@ -55,6 +55,19 @@ const MAX_DEATHS: Record<Difficulty, number> = {
   'super-hard': 2,
 };
 
+export type TextLength = 'normal' | 'short';
+
+export const TEXT_LENGTHS: TextLength[] = ['normal', 'short'];
+
+export const SHORT_DESC_MAX = 980;
+
+const TEXT_LENGTH_RULES: Record<TextLength, string> = {
+  normal: '',
+  short: `\n\n## Text length: short
+- Every "desc" MUST be at most ${SHORT_DESC_MAX} characters, spaces and punctuation included
+- Favour a few vivid sentences over long descriptions`,
+};
+
 export interface Player {
   name: string;
   info?: string;
@@ -69,6 +82,7 @@ export interface Game {
   nextSteps: Step[];
   players?: Player[];
   difficulty?: Difficulty;
+  textLength?: TextLength;
 }
 
 export interface ModelsResponse {
@@ -248,9 +262,10 @@ export class AppService implements OnModuleInit {
     language: string = 'fr',
     players?: Partial<Player>[],
     difficulty: Difficulty = 'easy',
+    textLength: TextLength = 'normal',
   ): Promise<Game> {
     this.logger.log(
-      `Starting new game with story: ${story} (difficulty: ${difficulty})`,
+      `Starting new game with story: ${story} (difficulty: ${difficulty}, text length: ${textLength})`,
     );
 
     // Load story content from stories.json
@@ -342,7 +357,7 @@ ${
     const systemPrompt = `${cachedStoryInstructions}${playersSection}
 
 ## Difficulty: ${difficulty}
-${DIFFICULTY_RULES[difficulty]}
+${DIFFICULTY_RULES[difficulty]}${TEXT_LENGTH_RULES[textLength]}
 
 ## Your Task
 Generate the initial state of the adventure as a JSON response with:
@@ -403,6 +418,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         nextSteps: this.normalizeSteps(aiResponse.nextSteps),
         players: validPlayers,
         difficulty,
+        textLength,
       };
 
       this.writeGame(newGame);
@@ -1007,6 +1023,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     const game = this.getGame(gameId);
     const language = game.language;
     const difficulty = game.difficulty ?? 'easy';
+    const textLength = game.textLength ?? 'normal';
     const players = game.players || [];
     const playerNameReminder =
       players.length === 0
@@ -1102,7 +1119,7 @@ ${storyContent}
     const systemPrompt = `${cachedStoryInstructions}
 
 ## Difficulty: ${difficulty}
-${DIFFICULTY_RULES[difficulty]}
+${DIFFICULTY_RULES[difficulty]}${TEXT_LENGTH_RULES[textLength]}
 
 ## Story Recap
 ${game.previously}

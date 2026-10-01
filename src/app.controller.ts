@@ -21,9 +21,18 @@ import {
   IsNumber,
   IsOptional,
   IsArray,
+  IsIn,
   ValidateNested,
 } from 'class-validator';
-import { AppService, Game, Player, Step, StoryData } from './app.service';
+import {
+  AppService,
+  DIFFICULTIES,
+  Difficulty,
+  Game,
+  Player,
+  Step,
+  StoryData,
+} from './app.service';
 
 class PlayerDto implements Partial<Player> {
   @ApiProperty({
@@ -76,6 +85,16 @@ class StartDto {
   @ValidateNested({ each: true })
   @Type(() => PlayerDto)
   players?: PlayerDto[];
+
+  @ApiProperty({
+    description: 'How hard the adventure is to survive',
+    required: false,
+    enum: DIFFICULTIES,
+    default: 'easy',
+  })
+  @IsOptional()
+  @IsIn(DIFFICULTIES)
+  difficulty?: Difficulty;
 }
 
 class MoveDto {
@@ -227,7 +246,12 @@ export class AppController {
     this.logger.log('POST /start endpoint called');
     const storySlug = body?.story?.trim() || 'montpellier';
     const language = body?.language?.trim() || 'fr';
-    return this.appService.start(storySlug, language, body?.players);
+    return this.appService.start(
+      storySlug,
+      language,
+      body?.players,
+      body?.difficulty,
+    );
   }
 
   @Post('state')

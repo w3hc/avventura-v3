@@ -26,6 +26,10 @@ export interface Step {
   action: string;
 }
 
+export type Difficulty = 'easy' | 'hard' | 'super-hard';
+
+export const DIFFICULTIES: Difficulty[] = ['easy', 'hard', 'super-hard'];
+
 export interface Player {
   name: string;
   info?: string;
@@ -39,6 +43,7 @@ export interface Game {
   currentStep: Step;
   nextSteps: Step[];
   players?: Player[];
+  difficulty?: Difficulty;
 }
 
 export interface ModelsResponse {
@@ -207,8 +212,11 @@ export class AppService implements OnModuleInit {
     story: string = 'montpellier',
     language: string = 'fr',
     players?: Partial<Player>[],
+    difficulty: Difficulty = 'easy',
   ): Promise<Game> {
-    this.logger.log(`Starting new game with story: ${story}`);
+    this.logger.log(
+      `Starting new game with story: ${story} (difficulty: ${difficulty})`,
+    );
 
     // Load story content from stories.json
     let storyContent: string;
@@ -486,6 +494,7 @@ Generate the initial state of the adventure as a JSON response with:
         currentStep: aiResponse.currentStep,
         nextSteps: aiResponse.nextSteps,
         players: validPlayers,
+        difficulty,
       };
 
       this.writeGame(newGame);

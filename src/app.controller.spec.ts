@@ -72,7 +72,12 @@ describe('AppController', () => {
 
       const result = await appController.start();
       expect(result).toEqual(mockGame);
-      expect(startSpy).toHaveBeenCalledWith('montpellier', 'fr', undefined);
+      expect(startSpy).toHaveBeenCalledWith(
+        'montpellier',
+        'fr',
+        undefined,
+        undefined,
+      );
     });
 
     it('should create a new game with custom story', async () => {
@@ -117,6 +122,7 @@ describe('AppController', () => {
         'montpellier-medieval',
         'fr',
         undefined,
+        undefined,
       );
     });
 
@@ -158,7 +164,12 @@ describe('AppController', () => {
         language: 'es',
       });
       expect(result).toEqual(mockGame);
-      expect(startSpy).toHaveBeenCalledWith('montpellier', 'es', undefined);
+      expect(startSpy).toHaveBeenCalledWith(
+        'montpellier',
+        'es',
+        undefined,
+        undefined,
+      );
     });
 
     it('should create a new game with custom story and language', async () => {
@@ -203,6 +214,7 @@ describe('AppController', () => {
       expect(startSpy).toHaveBeenCalledWith(
         'montpellier-medieval',
         'en',
+        undefined,
         undefined,
       );
     });

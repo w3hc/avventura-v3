@@ -49,6 +49,12 @@ const DIFFICULTY_RULES: Record<Difficulty, string> = {
 - Reaching "victory" requires a consistent run of sharp, well-informed choices`,
 };
 
+const MAX_DEATHS: Record<Difficulty, number> = {
+  easy: 0,
+  hard: 1,
+  'super-hard': 2,
+};
+
 export interface Player {
   name: string;
   info?: string;
@@ -375,148 +381,17 @@ Generate the initial state of the adventure as a JSON response with:
 - Set action to "start" for the initial step
 ${ENDING_RULE}${playerNameReminder}`;
 
-    const messages: Message[] = [
-      {
-        role: 'system',
-        content: systemPrompt,
-      },
-      {
-        role: 'user',
-        content: 'Initialize the adventure',
-      },
-    ];
-
     try {
-      const totalPromptChars = messages.reduce(
-        (sum, msg) => sum + msg.content.length,
-        0,
-      );
-      this.logger.debug(`Calling Anthropic API`);
-      this.logger.debug(`Total prompt characters: ${totalPromptChars}`);
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
-          // Use prompt caching: split system prompt into cacheable and dynamic parts
-          system: [
-            {
-              type: 'text',
-              text: cachedStoryInstructions,
-              cache_control: { type: 'ephemeral' },
-            },
-            {
-              type: 'text',
-              text: systemPrompt.replace(cachedStoryInstructions, '').trim(),
-            },
-          ],
-          messages: messages.slice(1).map((m) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-          })),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        this.logger.error(
-          `Anthropic API error: ${response.status} ${response.statusText} - ${errorBody}`,
-          'start',
-        );
-        throw new HttpException(
-          {
-            statusCode: response.status,
-            message: 'Failed to get AI response',
-            error: errorBody,
-          },
-          response.status >= 500 ? HttpStatus.BAD_GATEWAY : response.status,
-        );
-      }
-
-      const data = (await response.json()) as {
-        content: { type: string; text: string }[];
-        usage?: {
-          input_tokens: number;
-          output_tokens: number;
-          cache_creation_input_tokens?: number;
-          cache_read_input_tokens?: number;
-        };
-      };
-
-      let totalCost = 0;
-      if (data.usage) {
-        const cacheWrite = data.usage.cache_creation_input_tokens || 0;
-        const cacheRead = data.usage.cache_read_input_tokens || 0;
-        const regularInput = data.usage.input_tokens; // Already excludes cached tokens
-
-        const inputCost = (regularInput / 1_000_000) * 3.0;
-        const cacheWriteCost = (cacheWrite / 1_000_000) * 3.75; // 25% more than base
-        const cacheReadCost = (cacheRead / 1_000_000) * 0.3; // 90% discount
-        const outputCost = (data.usage.output_tokens / 1_000_000) * 15.0;
-        totalCost = inputCost + cacheWriteCost + cacheReadCost + outputCost;
-
-        this.logger.log(
-          `API Usage - Regular: ${regularInput}, CacheWrite: ${cacheWrite}, CacheRead: ${cacheRead}, Output: ${data.usage.output_tokens} | ` +
-            `Cost: $${totalCost.toFixed(6)} (savings: ${cacheRead > 0 ? `$${((cacheRead / 1_000_000) * 2.7).toFixed(6)}` : '$0'})`,
-        );
-      }
-
-      if (!data.content || data.content.length === 0) {
-        this.logger.error('Invalid API response: no content returned', 'start');
-        throw new HttpException(
-          'Invalid response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      const assistantMessage = data.content[0]?.text ?? '';
-
-      if (!assistantMessage) {
-        this.logger.warn('Empty assistant message in API response');
-        throw new HttpException(
-          'Empty response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      this.logger.log(
-        `Successfully received AI response (${assistantMessage.length} chars)`,
-      );
-
-      // Strip markdown code blocks if present
-      let jsonString = assistantMessage.trim();
-      if (jsonString.startsWith('```')) {
-        jsonString = jsonString
-          .replace(/^```(?:json)?\n/, '')
-          .replace(/\n```$/, '');
-      }
-
-      // Parse the AI response
-      let aiResponse: {
+      const { aiResponse, cost: totalCost } = await this.generateSteps<{
         currentStep: Step;
         nextSteps: Step[];
-      };
-      try {
-        aiResponse = JSON.parse(jsonString) as {
-          currentStep: Step;
-          nextSteps: Step[];
-        };
-      } catch (parseError) {
-        this.logger.error(
-          `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
-        );
-        this.logger.debug(`AI response was: ${assistantMessage}`);
-        throw new HttpException(
-          'Invalid JSON response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
+      }>(
+        cachedStoryInstructions,
+        systemPrompt,
+        'Initialize the adventure',
+        'start',
+        difficulty,
+      );
 
       const newGame: Game = {
         id: this.generateGameId(),
@@ -548,6 +423,206 @@ ${ENDING_RULE}${playerNameReminder}`;
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
+  }
+
+  private async generate<T extends { nextSteps: Step[] }>(
+    cachedStoryInstructions: string,
+    systemPrompt: string,
+    userMessage: string,
+    context: string,
+  ): Promise<{ aiResponse: T; cost: number }> {
+    const messages: Message[] = [
+      {
+        role: 'system',
+        content: systemPrompt,
+      },
+      {
+        role: 'user',
+        content: userMessage,
+      },
+    ];
+
+    const totalPromptChars = messages.reduce(
+      (sum, msg) => sum + msg.content.length,
+      0,
+    );
+    this.logger.debug(`Calling Anthropic API`);
+    this.logger.debug(`Total prompt characters: ${totalPromptChars}`);
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY || '',
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4096,
+        // Use prompt caching: split system prompt into cacheable and dynamic parts
+        system: [
+          {
+            type: 'text',
+            text: cachedStoryInstructions,
+            cache_control: { type: 'ephemeral' },
+          },
+          {
+            type: 'text',
+            text: systemPrompt.replace(cachedStoryInstructions, '').trim(),
+          },
+        ],
+        messages: messages.slice(1).map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      this.logger.error(
+        `Anthropic API error: ${response.status} ${response.statusText} - ${errorBody}`,
+        context,
+      );
+      throw new HttpException(
+        {
+          statusCode: response.status,
+          message: 'Failed to get AI response',
+          error: errorBody,
+        },
+        response.status >= 500 ? HttpStatus.BAD_GATEWAY : response.status,
+      );
+    }
+
+    const data = (await response.json()) as {
+      content: { type: string; text: string }[];
+      usage?: {
+        input_tokens: number;
+        output_tokens: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      };
+    };
+
+    let totalCost = 0;
+    if (data.usage) {
+      const cacheWrite = data.usage.cache_creation_input_tokens || 0;
+      const cacheRead = data.usage.cache_read_input_tokens || 0;
+      const regularInput = data.usage.input_tokens; // Already excludes cached tokens
+
+      const inputCost = (regularInput / 1_000_000) * 3.0;
+      const cacheWriteCost = (cacheWrite / 1_000_000) * 3.75; // 25% more than base
+      const cacheReadCost = (cacheRead / 1_000_000) * 0.3; // 90% discount
+      const outputCost = (data.usage.output_tokens / 1_000_000) * 15.0;
+      totalCost = inputCost + cacheWriteCost + cacheReadCost + outputCost;
+
+      this.logger.log(
+        `API Usage - Regular: ${regularInput}, CacheWrite: ${cacheWrite}, CacheRead: ${cacheRead}, Output: ${data.usage.output_tokens} | ` +
+          `Cost: $${totalCost.toFixed(6)} (savings: ${cacheRead > 0 ? `$${((cacheRead / 1_000_000) * 2.7).toFixed(6)}` : '$0'})`,
+      );
+    }
+
+    if (!data.content || data.content.length === 0) {
+      this.logger.error('Invalid API response: no content returned', context);
+      throw new HttpException(
+        'Invalid response from AI service',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+
+    const assistantMessage = data.content[0]?.text ?? '';
+
+    if (!assistantMessage) {
+      this.logger.warn('Empty assistant message in API response');
+      throw new HttpException(
+        'Empty response from AI service',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+
+    this.logger.log(
+      `Successfully received AI response (${assistantMessage.length} chars)`,
+    );
+
+    // Strip markdown code blocks if present
+    let jsonString = assistantMessage.trim();
+    if (jsonString.startsWith('```')) {
+      jsonString = jsonString
+        .replace(/^```(?:json)?\n/, '')
+        .replace(/\n```$/, '');
+    }
+
+    // Parse the AI response
+    let aiResponse: T;
+    try {
+      aiResponse = JSON.parse(jsonString) as T;
+    } catch (parseError) {
+      this.logger.error(
+        `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
+      );
+      this.logger.debug(`AI response was: ${assistantMessage}`);
+      throw new HttpException(
+        'Invalid JSON response from AI service',
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+
+    return { aiResponse, cost: totalCost };
+  }
+
+  private difficultyViolation(
+    steps: Step[],
+    difficulty: Difficulty,
+  ): string | null {
+    const deaths = (steps ?? []).filter((s) => s.action === 'death').length;
+    const max = MAX_DEATHS[difficulty];
+    return deaths > max
+      ? `${deaths} nextSteps have action "death" but at most ${max} allowed on ${difficulty}`
+      : null;
+  }
+
+  // Regenerates once when the model ignores the difficulty limits
+  private async generateSteps<T extends { nextSteps: Step[] }>(
+    cachedStoryInstructions: string,
+    systemPrompt: string,
+    userMessage: string,
+    context: string,
+    difficulty: Difficulty,
+  ): Promise<{ aiResponse: T; cost: number }> {
+    const first = await this.generate<T>(
+      cachedStoryInstructions,
+      systemPrompt,
+      userMessage,
+      context,
+    );
+    const violation = this.difficultyViolation(
+      first.aiResponse.nextSteps,
+      difficulty,
+    );
+    if (!violation) {
+      return first;
+    }
+
+    this.logger.warn(
+      `Difficulty violation in ${context}, retrying: ${violation}`,
+    );
+    const retry = await this.generate<T>(
+      cachedStoryInstructions,
+      systemPrompt,
+      `${userMessage}\n\nYour previous answer broke the difficulty rules: ${violation}. Regenerate the full JSON respecting them.`,
+      context,
+    );
+    const retryViolation = this.difficultyViolation(
+      retry.aiResponse.nextSteps,
+      difficulty,
+    );
+    if (retryViolation) {
+      this.logger.warn(
+        `Difficulty violation persists in ${context}, accepting: ${retryViolation}`,
+      );
+    }
+
+    return { aiResponse: retry.aiResponse, cost: first.cost + retry.cost };
   }
 
   private getGame(gameId: string): Game {
@@ -1078,148 +1153,17 @@ Generate ONLY two fields:
 - Set action to "milestone" for significant story points, "continue" otherwise
 ${ENDING_RULE}${playerNameReminder}`;
 
-    const messages: Message[] = [
-      {
-        role: 'system',
-        content: systemPrompt,
-      },
-      {
-        role: 'user',
-        content: `The player chose: ${game.currentStep.options[choiceIndex]}`,
-      },
-    ];
-
     try {
-      const totalPromptChars = messages.reduce(
-        (sum, msg) => sum + msg.content.length,
-        0,
-      );
-      this.logger.debug(`Calling Anthropic API`);
-      this.logger.debug(`Total prompt characters: ${totalPromptChars}`);
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-          'anthropic-version': '2023-06-01',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 4096,
-          // Use prompt caching: split system prompt into cacheable and dynamic parts
-          system: [
-            {
-              type: 'text',
-              text: cachedStoryInstructions,
-              cache_control: { type: 'ephemeral' },
-            },
-            {
-              type: 'text',
-              text: systemPrompt.replace(cachedStoryInstructions, '').trim(),
-            },
-          ],
-          messages: messages.slice(1).map((m) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-          })),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        this.logger.error(
-          `Anthropic API error: ${response.status} ${response.statusText} - ${errorBody}`,
-          'move',
-        );
-        throw new HttpException(
-          {
-            statusCode: response.status,
-            message: 'Failed to get AI response',
-            error: errorBody,
-          },
-          response.status >= 500 ? HttpStatus.BAD_GATEWAY : response.status,
-        );
-      }
-
-      const data = (await response.json()) as {
-        content: { type: string; text: string }[];
-        usage?: {
-          input_tokens: number;
-          output_tokens: number;
-          cache_creation_input_tokens?: number;
-          cache_read_input_tokens?: number;
-        };
-      };
-
-      let totalCost = 0;
-      if (data.usage) {
-        const cacheWrite = data.usage.cache_creation_input_tokens || 0;
-        const cacheRead = data.usage.cache_read_input_tokens || 0;
-        const regularInput = data.usage.input_tokens; // Already excludes cached tokens
-
-        const inputCost = (regularInput / 1_000_000) * 3.0;
-        const cacheWriteCost = (cacheWrite / 1_000_000) * 3.75; // 25% more than base
-        const cacheReadCost = (cacheRead / 1_000_000) * 0.3; // 90% discount
-        const outputCost = (data.usage.output_tokens / 1_000_000) * 15.0;
-        totalCost = inputCost + cacheWriteCost + cacheReadCost + outputCost;
-
-        this.logger.log(
-          `API Usage - Regular: ${regularInput}, CacheWrite: ${cacheWrite}, CacheRead: ${cacheRead}, Output: ${data.usage.output_tokens} | ` +
-            `Cost: $${totalCost.toFixed(6)} (savings: ${cacheRead > 0 ? `$${((cacheRead / 1_000_000) * 2.7).toFixed(6)}` : '$0'})`,
-        );
-      }
-
-      if (!data.content || data.content.length === 0) {
-        this.logger.error('Invalid API response: no content returned', 'move');
-        throw new HttpException(
-          'Invalid response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      const assistantMessage = data.content[0]?.text ?? '';
-
-      if (!assistantMessage) {
-        this.logger.warn('Empty assistant message in API response');
-        throw new HttpException(
-          'Empty response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      this.logger.log(
-        `Successfully received AI response (${assistantMessage.length} chars)`,
-      );
-
-      // Strip markdown code blocks if present
-      let jsonString = assistantMessage.trim();
-      if (jsonString.startsWith('```')) {
-        jsonString = jsonString
-          .replace(/^```(?:json)?\n/, '')
-          .replace(/\n```$/, '');
-      }
-
-      // Parse the AI response
-      let aiResponse: {
+      const { aiResponse, cost: totalCost } = await this.generateSteps<{
         previously: string;
         nextSteps: Step[];
-      };
-      try {
-        aiResponse = JSON.parse(jsonString) as {
-          previously: string;
-          nextSteps: Step[];
-        };
-      } catch (parseError) {
-        this.logger.error(
-          `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
-        );
-        this.logger.debug(`AI response was: ${assistantMessage}`);
-        throw new HttpException(
-          'Invalid JSON response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
+      }>(
+        cachedStoryInstructions,
+        systemPrompt,
+        `The player chose: ${game.currentStep.options[choiceIndex]}`,
+        'move',
+        difficulty,
+      );
 
       // Use the exact Step from the previous nextSteps as the new currentStep
       // The AI only generates the new 'previously' recap and new 'nextSteps'

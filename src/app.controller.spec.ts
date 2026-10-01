@@ -907,6 +907,7 @@ describe('AppController', () => {
     const internals = (service: AppService) =>
       service as unknown as {
         chargeStory: (slug: string, cost: number) => void;
+        generateSteps: (...args: unknown[]) => Promise<unknown>;
         readGame: (gameId: string) => Game | null;
         writeGame: (game: Game) => void;
         updateGame: (
@@ -929,7 +930,12 @@ describe('AppController', () => {
       storiesPath = join(dir, 'stories', 'stories.json');
       writeFileSync(
         storiesPath,
-        JSON.stringify([{ slug: 'funded', credits: 10 }, { slug: 'legacy' }]),
+        JSON.stringify([
+          { slug: 'funded', credits: 10 },
+          { slug: 'legacy' },
+          { slug: 'broke', credits: 0 },
+          { slug: 'overdrawn', credits: -1 },
+        ]),
       );
       jest.spyOn(process, 'cwd').mockReturnValue(dir);
       process.env.CREDITS_PASSWORD = password;
@@ -987,6 +993,54 @@ describe('AppController', () => {
         password,
       });
       expect(await validate(dto)).not.toHaveLength(0);
+    });
+
+    it.each(['broke', 'overdrawn'])(
+      'should refuse to start %s with 402',
+      async (slug) => {
+        const service = internals(appController['appService']);
+        const generateSpy = jest.spyOn(service, 'generateSteps');
+
+        await expect(
+          appController['appService'].start(slug, 'en'),
+        ).rejects.toMatchObject({ status: 402, message: 'Not enough credits' });
+        expect(generateSpy).not.toHaveBeenCalled();
+      },
+    );
+
+    it('should refuse to move with 402 when the story is out of credits', async () => {
+      const service = internals(appController['appService']);
+      jest.spyOn(service, 'readGame').mockReturnValue({
+        id: 'GAME',
+        story: 'broke',
+        language: 'en',
+        previously: '',
+        currentStep: { ...step, options: ['A', 'B', 'C'] },
+        nextSteps: [step, step, step],
+      });
+      const generateSpy = jest.spyOn(service, 'generateSteps');
+
+      await expect(
+        appController['appService'].move('GAME', 0),
+      ).rejects.toMatchObject({ status: 402 });
+      expect(generateSpy).not.toHaveBeenCalled();
+    });
+
+    it('should still reach an ending when the story is out of credits', async () => {
+      const service = internals(appController['appService']);
+      const ending: Step = { desc: 'The end', options: [], action: 'death' };
+      jest.spyOn(service, 'readGame').mockReturnValue({
+        id: 'GAME',
+        story: 'broke',
+        language: 'en',
+        previously: '',
+        currentStep: { ...step, options: ['A', 'B', 'C'] },
+        nextSteps: [ending, step, step],
+      });
+      jest.spyOn(service, 'writeGame').mockImplementation(() => undefined);
+
+      const result = await appController['appService'].move('GAME', 0);
+      expect(result.currentStep).toEqual(ending);
     });
 
     it('should deduct the request cost from the story', () => {

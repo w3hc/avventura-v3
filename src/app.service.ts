@@ -30,6 +30,10 @@ export type Difficulty = 'easy' | 'hard' | 'super-hard';
 
 export const DIFFICULTIES: Difficulty[] = ['easy', 'hard', 'super-hard'];
 
+export const ENDING_ACTIONS = ['death', 'victory'];
+
+const ENDING_RULE = `- A nextStep can end the adventure: set its action to "death" if the choice gets the player killed or irreversibly defeated, or "victory" if it fulfils the story's goal. An ending's "desc" narrates the conclusion and its "options" MUST be an empty array []`;
+
 export interface Player {
   name: string;
   info?: string;
@@ -208,6 +212,16 @@ export class AppService implements OnModuleInit {
     }
   }
 
+  private isEnding(step: Step): boolean {
+    return ENDING_ACTIONS.includes(step.action);
+  }
+
+  private normalizeSteps(steps: Step[]): Step[] {
+    return steps.map((step) =>
+      this.isEnding(step) ? { ...step, options: [] } : step,
+    );
+  }
+
   async start(
     story: string = 'montpellier',
     language: string = 'fr',
@@ -340,7 +354,8 @@ Generate the initial state of the adventure as a JSON response with:
 **IMPORTANT:**
 - Return ONLY the JSON object, no markdown code blocks
 - Each nextStep should meaningfully correspond to its option in currentStep
-- Set action to "start" for the initial step${playerNameReminder}`;
+- Set action to "start" for the initial step
+${ENDING_RULE}${playerNameReminder}`;
 
     const messages: Message[] = [
       {
@@ -492,7 +507,7 @@ Generate the initial state of the adventure as a JSON response with:
         previously:
           language === 'en' ? 'First step.' : this.getFirstStepText(language),
         currentStep: aiResponse.currentStep,
-        nextSteps: aiResponse.nextSteps,
+        nextSteps: this.normalizeSteps(aiResponse.nextSteps),
         players: validPlayers,
         difficulty,
       };
@@ -910,6 +925,10 @@ Generate the initial state of the adventure as a JSON response with:
                 ' and ',
               )} by name in every sentence of "previously" and "nextSteps" that refers to them`;
 
+    if (this.isEnding(game.currentStep)) {
+      throw new HttpException('Game is over', HttpStatus.BAD_REQUEST);
+    }
+
     // Validate choice index
     if (
       choiceIndex < 0 ||
@@ -924,6 +943,17 @@ Generate the initial state of the adventure as a JSON response with:
       game.nextSteps.length > 0
         ? game.nextSteps[choiceIndex]
         : game.currentStep;
+
+    // An ending has nothing left to generate: skip the AI call
+    if (this.isEnding(newCurrentStep)) {
+      this.updateGame(gameId, game.previously, newCurrentStep, []);
+      this.logger.log(`Game ${gameId} ended with ${newCurrentStep.action}`);
+      return {
+        previously: game.previously,
+        currentStep: newCurrentStep,
+        nextSteps: [],
+      };
+    }
 
     // Load story content from stories.json
     let storyContent: string;
@@ -1023,7 +1053,8 @@ Generate ONLY two fields:
 - Keep the story progressive and NEVER repeat situations or scenarios from the previously recap
 - Each new scenario must introduce NEW elements, locations, characters, or events
 - Each nextStep must meaningfully correspond to the option it represents
-- Set action to "milestone" for significant story points, "continue" otherwise${playerNameReminder}`;
+- Set action to "milestone" for significant story points, "continue" otherwise
+${ENDING_RULE}${playerNameReminder}`;
 
     const messages: Message[] = [
       {
@@ -1171,19 +1202,16 @@ Generate ONLY two fields:
       // Use the exact Step from the previous nextSteps as the new currentStep
       // The AI only generates the new 'previously' recap and new 'nextSteps'
 
+      const nextSteps = this.normalizeSteps(aiResponse.nextSteps);
+
       // Update the game with new state
-      this.updateGame(
-        gameId,
-        aiResponse.previously,
-        newCurrentStep,
-        aiResponse.nextSteps,
-      );
+      this.updateGame(gameId, aiResponse.previously, newCurrentStep, nextSteps);
       this.writeCost(gameId, totalCost);
 
       return {
         previously: aiResponse.previously,
         currentStep: newCurrentStep,
-        nextSteps: aiResponse.nextSteps,
+        nextSteps,
       };
     } catch (error) {
       if (error instanceof HttpException) {

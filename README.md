@@ -51,9 +51,9 @@ In `short` mode, a `desc` over the limit triggers one regeneration; if it is sti
 
 ## Credits
 
-Each story in `stories/stories.json` has a `credits` balance in USD, set to `100` when the story is created. A story without the key counts as having `100`.
+Each story in `stories/stories.json` has a `credits` balance in euros, set to `100` when the story is created. A story without the key counts as having `100`.
 
-Every AI call made by `POST /start` and `POST /move` is priced from the tokens it used (input, cache writes, cache reads and output, at `claude-sonnet-5-5` rates). That amount is subtracted from the story's `credits` and added to the game's `spent` key in `games/<id>.json`. `POST /move` returns the game's `spent` total.
+Every AI call made by `POST /start` and `POST /move` is priced in euros from the tokens it used (input, cache writes, cache reads and output, at the current `claude-sonnet-5-5` rates, see [Pricing](#pricing)). That amount is subtracted from the story's `credits` and added to the game's `spent` key in `games/<id>.json`. `POST /move` returns the game's `spent` total.
 
 When a story's `credits` is `0` or below, `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
 
@@ -73,6 +73,20 @@ curl -X POST localhost:3000/stories/credits \
 ```
 
 The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an unknown slug 404.
+
+## Pricing
+
+Token rates (USD per million tokens) and the USD to EUR rate live in `pricing/pricing.json`. Until the first update has run, the committed `pricing/default-pricing.json` is used instead.
+
+Every day at 06:00 UTC, the API asks `claude-sonnet-5-5`, with web search, for the current rates on the [official pricing page](https://platform.claude.com/docs/en/about-claude/pricing), and fetches the ECB USD to EUR rate from [Frankfurter](https://frankfurter.dev). Rates that are missing, out of range, or more than 3 times higher or lower than the current ones reject the whole update, keeping the current file. If only Frankfurter fails, the last known USD to EUR rate is kept. The previous file is archived to `pricing/archive/pricing-<date>.json`.
+
+Run the update now with `POST /pricing/update`, protected by `CREDITS_PASSWORD`:
+
+```bash
+curl -X POST localhost:3000/pricing/update \
+  -H 'Content-Type: application/json' \
+  -d '{"password": "..."}'
+```
 
 ## License
 

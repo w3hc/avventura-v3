@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Token rates and the USD to EUR rate are refreshed every day at 06:00 UTC from the official Claude pricing page (through Claude web search) and the ECB rate via Frankfurter, validated and stored in `pricing/pricing.json`, with the previous file archived ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
+- `POST /pricing/update` runs the pricing update now, protected by `CREDITS_PASSWORD` ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
+- `.env.template` lists `ANTHROPIC_API_KEY` ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
 - `.claude/CLAUDE.md` describes the production host, the production and local API URLs, and the frontend that consumes the API ([#37](https://github.com/w3hc/avventura-v3/issues/37)).
 - `POST /start` and `POST /move` return 402 Payment Required without calling the AI when the story's `credits` is 0 or below. Moves that reach an ending are still allowed ([#35](https://github.com/w3hc/avventura-v3/issues/35)).
 - `pnpm credits:init` (`scripts/init-credits.mts`) sets `credits` to 100 on every story that has none, leaving existing balances unchanged ([#35](https://github.com/w3hc/avventura-v3/issues/35)).
@@ -22,6 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Costs, `credits`, `spent` and `costs.json` are in euros, priced from the current rates instead of hardcoded USD rates. Existing balances are kept as they are ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
 - The AI model is `claude-sonnet-5-5` with thinking off (`between_tools`), and costs are priced at its rates ([#33](https://github.com/w3hc/avventura-v3/issues/33)).
 - The single retry on broken difficulty rules also covers the text length limit ([#31](https://github.com/w3hc/avventura-v3/issues/31)).
 - `start` and `move` share a single Anthropic call helper ([#29](https://github.com/w3hc/avventura-v3/issues/29)).

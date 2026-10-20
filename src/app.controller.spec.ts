@@ -14,6 +14,7 @@ import {
   StoryData,
   TextLength,
 } from './app.service';
+import { PricingFile, PricingService } from './pricing/pricing.service';
 import * as modelsData from '../models-infomaniak.json';
 
 describe('AppController', () => {
@@ -22,7 +23,7 @@ describe('AppController', () => {
   beforeEach(async () => {
     const app: TestingModule = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService],
+      providers: [AppService, PricingService],
     }).compile();
 
     appController = app.get<AppController>(AppController);
@@ -1041,6 +1042,43 @@ describe('AppController', () => {
 
       const result = await appController['appService'].move('GAME', 0);
       expect(result.currentStep).toEqual(ending);
+    });
+
+    it('should price an AI call in EUR from the current rates', async () => {
+      const pricing = appController['appService']['pricingService'];
+      (pricing as unknown as { data: PricingFile }).data = {
+        updatedAt: '2026-10-20',
+        usdEurRate: 0.5,
+        usdEurRateDate: '2026-10-19',
+        models: {
+          'claude-sonnet-5-5': {
+            input: 2,
+            cacheWrite: 2.5,
+            cacheRead: 0.2,
+            output: 10,
+          },
+        },
+      };
+      jest.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '{"nextSteps":[]}' }],
+            usage: {
+              input_tokens: 1_000_000,
+              output_tokens: 1_000_000,
+              cache_creation_input_tokens: 1_000_000,
+              cache_read_input_tokens: 1_000_000,
+            },
+          }),
+        ),
+      );
+
+      const { cost } = await (
+        appController['appService'] as unknown as {
+          generate: (...args: string[]) => Promise<{ cost: number }>;
+        }
+      ).generate('cached', 'cached system', 'user', 'test');
+      expect(cost).toBeCloseTo((2 + 2.5 + 0.2 + 10) * 0.5);
     });
 
     it('should deduct the request cost from the story', () => {

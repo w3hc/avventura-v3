@@ -173,7 +173,7 @@ export class AddCreditsDto {
   slug: string;
 
   @ApiProperty({
-    description: 'The amount to add, in USD',
+    description: 'The amount to add, in EUR',
     example: 20,
   })
   @IsNumber()
@@ -272,7 +272,7 @@ export class AppController {
   @Post('stories/credits')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Add credits (USD) to a story',
+    summary: 'Add credits (EUR) to a story',
   })
   @ApiBody({ type: AddCreditsDto })
   @ApiResponse({

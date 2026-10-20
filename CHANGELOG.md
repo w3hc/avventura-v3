@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `.claude/CLAUDE.md` describes the production host, the production and local API URLs, and the frontend that consumes the API ([#37](https://github.com/w3hc/avventura-v3/issues/37)).
 - `POST /start` and `POST /move` return 402 Payment Required without calling the AI when the story's `credits` is 0 or below. Moves that reach an ending are still allowed ([#35](https://github.com/w3hc/avventura-v3/issues/35)).
 - `pnpm credits:init` (`scripts/init-credits.mts`) sets `credits` to 100 on every story that has none, leaving existing balances unchanged ([#35](https://github.com/w3hc/avventura-v3/issues/35)).
 - Stories have a `credits` balance in USD, set to 100 on creation. Each `/start` and `/move` AI call deducts its token cost from it ([#33](https://github.com/w3hc/avventura-v3/issues/33)).

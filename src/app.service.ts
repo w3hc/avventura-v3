@@ -13,7 +13,9 @@ import {
   mkdirSync,
 } from 'fs';
 import { join } from 'path';
-import { randomBytes, timingSafeEqual } from 'crypto';
+import { randomBytes } from 'crypto';
+import { assertCreditsPassword } from './credits-password';
+import { PricingService } from './pricing/pricing.service';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -70,17 +72,9 @@ const TEXT_LENGTH_RULES: Record<TextLength, string> = {
 
 const MODEL = 'claude-sonnet-5-5';
 
-// USD per million tokens, from https://platform.claude.com/docs/en/about-claude/pricing
-const PRICE_PER_MTOK = {
-  input: 2.0,
-  cacheWrite: 2.5,
-  cacheRead: 0.2,
-  output: 10.0,
-};
-
 export const DEFAULT_CREDITS = 100;
 
-const roundUsd = (amount: number): number => parseFloat(amount.toFixed(6));
+const roundEur = (amount: number): number => parseFloat(amount.toFixed(6));
 
 export interface Player {
   name: string;
@@ -135,6 +129,8 @@ export class AppService implements OnModuleInit {
   private readonly baseUrl = `https://api.infomaniak.com/1/ai/${process.env.INFOMANIAK_PRODUCT_ID}/openai/chat/completions`;
   private readonly gamesDir = join(process.cwd(), 'games');
   private readonly costsFilePath = join(process.cwd(), 'costs.json');
+
+  constructor(private readonly pricingService: PricingService) {}
 
   onModuleInit() {
     if (!existsSync(this.gamesDir)) {
@@ -215,7 +211,7 @@ export class AppService implements OnModuleInit {
     }
   }
 
-  // Adds delta (USD) to a story's credits, counting a missing key as DEFAULT_CREDITS
+  // Adds delta (EUR) to a story's credits, counting a missing key as DEFAULT_CREDITS
   private updateStoryCredits(slug: string, delta: number): number {
     const storiesPath = join(process.cwd(), 'stories', 'stories.json');
     const stories = JSON.parse(
@@ -226,14 +222,14 @@ export class AppService implements OnModuleInit {
       throw new HttpException('Story not found', HttpStatus.NOT_FOUND);
     }
 
-    story.credits = roundUsd((story.credits ?? DEFAULT_CREDITS) + delta);
+    story.credits = roundEur((story.credits ?? DEFAULT_CREDITS) + delta);
     writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
     return story.credits;
   }
 
   private assertCredits(slug: string, credits: number): void {
     if (credits <= 0) {
-      this.logger.warn(`Story ${slug} is out of credits ($${credits})`);
+      this.logger.warn(`Story ${slug} is out of credits (€${credits})`);
       throw new HttpException(
         'Not enough credits',
         HttpStatus.PAYMENT_REQUIRED,
@@ -243,9 +239,9 @@ export class AppService implements OnModuleInit {
 
   private chargeStory(slug: string, cost: number): void {
     try {
-      const credits = this.updateStoryCredits(slug, -roundUsd(cost));
+      const credits = this.updateStoryCredits(slug, -roundEur(cost));
       this.logger.debug(
-        `Charged $${roundUsd(cost)} to story ${slug}, credits left: $${credits}`,
+        `Charged €${roundEur(cost)} to story ${slug}, credits left: €${credits}`,
       );
     } catch (error) {
       this.logger.error(
@@ -478,7 +474,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         players: validPlayers,
         difficulty,
         textLength,
-        spent: roundUsd(totalCost),
+        spent: roundEur(totalCost),
       };
 
       this.writeGame(newGame);
@@ -588,20 +584,15 @@ ${ENDING_RULE}${playerNameReminder}`;
       const cacheRead = data.usage.cache_read_input_tokens || 0;
       const regularInput = data.usage.input_tokens; // Already excludes cached tokens
 
-      const inputCost = (regularInput / 1_000_000) * PRICE_PER_MTOK.input;
-      const cacheWriteCost =
-        (cacheWrite / 1_000_000) * PRICE_PER_MTOK.cacheWrite;
-      const cacheReadCost = (cacheRead / 1_000_000) * PRICE_PER_MTOK.cacheRead;
-      const outputCost =
-        (data.usage.output_tokens / 1_000_000) * PRICE_PER_MTOK.output;
-      totalCost = inputCost + cacheWriteCost + cacheReadCost + outputCost;
-      const savings =
-        (cacheRead / 1_000_000) *
-        (PRICE_PER_MTOK.input - PRICE_PER_MTOK.cacheRead);
+      totalCost = this.pricingService.costEur(MODEL, data.usage);
+      const rates = this.pricingService.getRates(MODEL);
+      const savings = this.pricingService.toEur(
+        (cacheRead / 1_000_000) * (rates.input - rates.cacheRead),
+      );
 
       this.logger.log(
         `API Usage - Regular: ${regularInput}, CacheWrite: ${cacheWrite}, CacheRead: ${cacheRead}, Output: ${data.usage.output_tokens} | ` +
-          `Cost: $${totalCost.toFixed(6)} (savings: $${savings.toFixed(6)})`,
+          `Cost: €${totalCost.toFixed(6)} (savings: €${savings.toFixed(6)})`,
       );
     }
 
@@ -809,7 +800,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     game.previously = previously;
     game.currentStep = currentStep;
     game.nextSteps = nextSteps;
-    game.spent = roundUsd((game.spent ?? 0) + roundUsd(cost));
+    game.spent = roundEur((game.spent ?? 0) + roundEur(cost));
     this.writeGame(game);
     this.logger.log(`Updated game state for ID: ${gameId}`);
     return game;
@@ -1162,26 +1153,12 @@ ${ENDING_RULE}${playerNameReminder}`;
     amount: number,
     password: string,
   ): { added: number; credits: number } {
-    const expected = process.env.CREDITS_PASSWORD;
-    if (!expected) {
-      this.logger.error('CREDITS_PASSWORD is not configured');
-      throw new HttpException(
-        'CREDITS_PASSWORD is not configured',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
+    assertCreditsPassword(password, `credits top-up for story ${slug}`);
 
-    const given = Buffer.from(password);
-    const wanted = Buffer.from(expected);
-    if (given.length !== wanted.length || !timingSafeEqual(given, wanted)) {
-      this.logger.warn(`Rejected credits top-up for story ${slug}`);
-      throw new HttpException('Invalid password', HttpStatus.UNAUTHORIZED);
-    }
-
-    const added = roundUsd(amount);
+    const added = roundEur(amount);
     const credits = this.updateStoryCredits(slug, added);
     this.logger.log(
-      `Added $${added} to story ${slug}, credits now: $${credits}`,
+      `Added €${added} to story ${slug}, credits now: €${credits}`,
     );
     return { added, credits };
   }

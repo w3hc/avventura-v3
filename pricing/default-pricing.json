@@ -1,0 +1,14 @@
+{
+  "updatedAt": "2026-10-20",
+  "source": "https://platform.claude.com/docs/en/about-claude/pricing",
+  "usdEurRate": 0.89087,
+  "usdEurRateDate": "2026-10-19",
+  "models": {
+    "claude-sonnet-5-5": {
+      "input": 2.0,
+      "cacheWrite": 2.5,
+      "cacheRead": 0.2,
+      "output": 10.0
+    }
+  }
+}

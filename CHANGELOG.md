@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `POST /stories` and `POST /stories/edit` require a SIWE signature in the `x-siwe-message` and `x-siwe-signature` headers, checked by `SiweAuthGuard` with [w3pk](https://www.npmjs.com/package/w3pk): chain, optional domain allow-list, expiration window, a statement bound to the request, the signature and a single-use nonce ([#48](https://github.com/w3hc/avventura-v3/issues/48)).
+- New stories record the signer as `creatorAddress` ([#48](https://github.com/w3hc/avventura-v3/issues/48)).
+- `.env.template` lists `SIWE_CHAIN_ID`, `SIWE_MAX_AGE_SECONDS` and `SIWE_ALLOWED_DOMAINS` ([#48](https://github.com/w3hc/avventura-v3/issues/48)).
 - Token rates and the USD to EUR rate are refreshed every day at 06:00 UTC from the official Claude pricing page (through Claude web search) and the ECB rate via Frankfurter, validated and stored in `pricing/pricing.json`, with the previous file archived ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
 - `POST /pricing/update` runs the pricing update now, protected by `CREDITS_PASSWORD` ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
 - `.env.template` lists `ANTHROPIC_API_KEY` ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
@@ -25,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `POST /stories/edit` returns 403 unless the signer is the story's `creatorAddress`, and ignores updates to `creatorAddress`, `credits`, `sessions`, `requests` and `created_at` ([#48](https://github.com/w3hc/avventura-v3/issues/48)).
 - Costs, `credits`, `spent` and `costs.json` are in euros, priced from the current rates instead of hardcoded USD rates. Existing balances are kept as they are ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
 - The AI model is `claude-sonnet-5-5` with thinking off (`between_tools`), and costs are priced at its rates ([#33](https://github.com/w3hc/avventura-v3/issues/33)).
 - The single retry on broken difficulty rules also covers the text length limit ([#31](https://github.com/w3hc/avventura-v3/issues/31)).

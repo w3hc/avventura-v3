@@ -29,8 +29,10 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "dotenv": "^18.0.5",
+    "ethers": "^6.17.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "w3pk": "^0.12.4"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",
@@ -76,5 +78,12 @@
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
   },
-  "packageManager": "pnpm@10.23.0+sha1.b4a44ab0dc2adf2e36371d11d8eb0dc78ffc976c"
+  "packageManager": "pnpm@10.23.0+sha1.b4a44ab0dc2adf2e36371d11d8eb0dc78ffc976c",
+  "pnpm": {
+    "overrides": {
+      "underscore@<1.13.8": ">=1.13.8",
+      "brace-expansion@2": ">=2.1.7 <3",
+      "circomlibjs": "-"
+    }
+  }
 }

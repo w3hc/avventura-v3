@@ -17,6 +17,9 @@ import {
 import { PricingFile, PricingService } from './pricing/pricing.service';
 import * as modelsData from '../models-infomaniak.json';
 
+const CREATOR = '0x1111111111111111111111111111111111111111';
+const STRANGER = '0x2222222222222222222222222222222222222222';
+
 describe('AppController', () => {
   let appController: AppController;
 
@@ -385,9 +388,12 @@ describe('AppController', () => {
         .spyOn(appController['appService'], 'createStory')
         .mockResolvedValue(mockStory);
 
-      const result = await appController.createStory({ prompt: mockPrompt });
+      const result = await appController.createStory(
+        { prompt: mockPrompt },
+        CREATOR,
+      );
       expect(result).toEqual(mockStory);
-      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt);
+      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt, CREATOR);
     });
 
     it('should handle API errors gracefully', async () => {
@@ -397,9 +403,9 @@ describe('AppController', () => {
         .mockRejectedValue(new Error('Failed to get AI response'));
 
       await expect(
-        appController.createStory({ prompt: mockPrompt }),
+        appController.createStory({ prompt: mockPrompt }, CREATOR),
       ).rejects.toThrow('Failed to get AI response');
-      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt);
+      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt, CREATOR);
     });
   });
 
@@ -463,12 +469,15 @@ describe('AppController', () => {
         .spyOn(appController['appService'], 'editStory')
         .mockReturnValue(mockUpdatedStory);
 
-      const result = await appController.editStory({
-        slug: mockSlug,
-        updates: mockUpdates,
-      });
+      const result = await appController.editStory(
+        {
+          slug: mockSlug,
+          updates: mockUpdates,
+        },
+        CREATOR,
+      );
       expect(result).toEqual(mockUpdatedStory);
-      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, CREATOR);
     });
 
     it('should update story slug successfully', async () => {
@@ -530,13 +539,16 @@ describe('AppController', () => {
         .spyOn(appController['appService'], 'editStory')
         .mockReturnValue(mockUpdatedStory);
 
-      const result = await appController.editStory({
-        slug: mockSlug,
-        updates: mockUpdates,
-      });
+      const result = await appController.editStory(
+        {
+          slug: mockSlug,
+          updates: mockUpdates,
+        },
+        CREATOR,
+      );
       expect(result).toEqual(mockUpdatedStory);
       expect(result.slug).toBe('medieval-montpellier');
-      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, CREATOR);
     });
 
     it('should update multiple fields successfully', async () => {
@@ -600,15 +612,18 @@ describe('AppController', () => {
         .spyOn(appController['appService'], 'editStory')
         .mockReturnValue(mockUpdatedStory);
 
-      const result = await appController.editStory({
-        slug: mockSlug,
-        updates: mockUpdates,
-      });
+      const result = await appController.editStory(
+        {
+          slug: mockSlug,
+          updates: mockUpdates,
+        },
+        CREATOR,
+      );
       expect(result).toEqual(mockUpdatedStory);
       expect(result.title).toBe('Updated Title');
       expect(result.is_active).toBe(false);
       expect(result.sessions).toBe(150);
-      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, CREATOR);
     });
 
     it('should handle story not found error', () => {
@@ -621,9 +636,140 @@ describe('AppController', () => {
         });
 
       expect(() =>
-        appController.editStory({ slug: mockSlug, updates: mockUpdates }),
+        appController.editStory(
+          { slug: mockSlug, updates: mockUpdates },
+          CREATOR,
+        ),
       ).toThrow('Story not found');
-      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, CREATOR);
+    });
+  });
+
+  describe('story ownership', () => {
+    let dir: string;
+    let storiesPath: string;
+
+    const readStories = () =>
+      JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'avventura-'));
+      mkdirSync(join(dir, 'stories'));
+      storiesPath = join(dir, 'stories', 'stories.json');
+      writeFileSync(
+        storiesPath,
+        JSON.stringify([
+          {
+            slug: 'owned',
+            title: 'Owned',
+            creatorAddress: CREATOR,
+            credits: 10,
+            sessions: 3,
+            requests: 7,
+            created_at: '2026-01-01T00:00:00.000Z',
+          },
+          { slug: 'legacy', title: 'Legacy' },
+        ]),
+      );
+      jest.spyOn(process, 'cwd').mockReturnValue(dir);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      delete process.env.ANTHROPIC_API_KEY;
+    });
+
+    it('lets the creator edit their story', () => {
+      const result = appController['appService'].editStory(
+        'owned',
+        { title: 'Renamed' },
+        CREATOR.toUpperCase().replace('0X', '0x'),
+      );
+      expect(result.title).toBe('Renamed');
+      expect(readStories()[0].title).toBe('Renamed');
+    });
+
+    it('ignores updates to protected fields', () => {
+      appController['appService'].editStory(
+        'owned',
+        {
+          title: 'Renamed',
+          creatorAddress: STRANGER,
+          credits: 1000,
+          sessions: 0,
+          requests: 0,
+        },
+        CREATOR,
+      );
+      expect(readStories()[0]).toMatchObject({
+        title: 'Renamed',
+        creatorAddress: CREATOR,
+        credits: 10,
+        sessions: 3,
+        requests: 7,
+        created_at: '2026-01-01T00:00:00.000Z',
+      });
+    });
+
+    it('returns 403 to anyone else', () => {
+      expect(() =>
+        appController['appService'].editStory(
+          'owned',
+          { title: 'Hijacked' },
+          STRANGER,
+        ),
+      ).toThrow('Only the story creator can edit it');
+      expect(readStories()[0].title).toBe('Owned');
+    });
+
+    it('returns 403 for a story without a creator', () => {
+      expect(() =>
+        appController['appService'].editStory(
+          'legacy',
+          { title: 'Claimed' },
+          CREATOR,
+        ),
+      ).toThrow('Only the story creator can edit it');
+    });
+
+    it('returns 404 before checking ownership', () => {
+      expect(() =>
+        appController['appService'].editStory(
+          'missing',
+          { title: 'x' },
+          CREATOR,
+        ),
+      ).toThrow('Story not found');
+    });
+
+    it('stores the creator address on a new story', async () => {
+      writeFileSync(join(dir, 'avventura-edit-instruction-file.md'), 'Rules');
+      process.env.ANTHROPIC_API_KEY = 'test';
+      const generated = {
+        slug: 'new-story',
+        title: 'New story',
+        content: '# New story',
+        homepage_display: {},
+        creatorAddress: STRANGER,
+      };
+      jest.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: JSON.stringify(generated) }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+        ),
+      );
+
+      const story = await appController['appService'].createStory(
+        'A prompt',
+        CREATOR,
+      );
+      expect(story.creatorAddress).toBe(CREATOR);
+      expect(readStories()[2]).toMatchObject({
+        slug: 'new-story',
+        creatorAddress: CREATOR,
+      });
     });
   });
 

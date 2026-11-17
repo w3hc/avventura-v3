@@ -5,6 +5,29 @@ import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { AppService } from './../src/app.service';
 import * as modelsData from './../models-infomaniak.json';
+import { Wallet } from 'ethers';
+import { createSiweMessage, generateSiweNonce } from 'w3pk';
+
+const wallet = Wallet.createRandom();
+
+async function siweHeaders(statement: string): Promise<Record<string, string>> {
+  const now = Date.now();
+  const message = createSiweMessage({
+    domain: 'avventura.fun',
+    address: wallet.address,
+    statement,
+    uri: 'https://avventura.fun/edit',
+    version: '1',
+    chainId: 1,
+    nonce: generateSiweNonce(),
+    issuedAt: new Date(now).toISOString(),
+    expirationTime: new Date(now + 5 * 60 * 1000).toISOString(),
+  });
+  return {
+    'x-siwe-message': encodeURIComponent(message),
+    'x-siwe-signature': await wallet.signMessage(message),
+  };
+}
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -94,12 +117,17 @@ describe('AppController (e2e)', () => {
     }),
   };
 
+  const createStory = jest.fn().mockResolvedValue({ slug: 'new-story' });
+  const editStory = jest.fn().mockReturnValue({ slug: 'new-story' });
+
   beforeEach(async () => {
+    createStory.mockClear();
+    editStory.mockClear();
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(AppService)
-      .useValue(mockAppService)
+      .useValue({ ...mockAppService, createStory, editStory })
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -230,5 +258,47 @@ describe('AppController (e2e)', () => {
           3,
         );
       });
+  });
+
+  it('/stories (POST) - rejects a request without SIWE headers', async () => {
+    await request(app.getHttpServer())
+      .post('/stories')
+      .send({ prompt: 'A story' })
+      .expect(401);
+    expect(createStory).not.toHaveBeenCalled();
+  });
+
+  it('/stories (POST) - creates the story for the signer', async () => {
+    await request(app.getHttpServer())
+      .post('/stories')
+      .set(await siweHeaders('Authorize POST /stories'))
+      .send({ prompt: 'A story' })
+      .expect(201);
+    expect(createStory).toHaveBeenCalledWith(
+      'A story',
+      wallet.address.toLowerCase(),
+    );
+  });
+
+  it('/stories/edit (POST) - rejects a signature for another route', async () => {
+    await request(app.getHttpServer())
+      .post('/stories/edit')
+      .set(await siweHeaders('Authorize POST /stories'))
+      .send({ slug: 'new-story', updates: { title: 'x' } })
+      .expect(401);
+    expect(editStory).not.toHaveBeenCalled();
+  });
+
+  it('/stories/edit (POST) - passes the signer to the service', async () => {
+    await request(app.getHttpServer())
+      .post('/stories/edit')
+      .set(await siweHeaders('Authorize POST /stories/edit'))
+      .send({ slug: 'new-story', updates: { title: 'x' } })
+      .expect(200);
+    expect(editStory).toHaveBeenCalledWith(
+      'new-story',
+      { title: 'x' },
+      wallet.address.toLowerCase(),
+    );
   });
 });

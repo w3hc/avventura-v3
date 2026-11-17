@@ -7,9 +7,11 @@ import {
   Logger,
   HttpStatus,
   HttpCode,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBody,
+  ApiHeader,
   ApiOperation,
   ApiProperty,
   ApiResponse,
@@ -36,6 +38,22 @@ import {
   TEXT_LENGTHS,
   TextLength,
 } from './app.service';
+import { SiweAuthGuard } from './guards/siwe-auth.guard';
+import { SiweAddress } from './guards/siwe-address.decorator';
+
+const SIWE_HEADERS = [
+  {
+    name: 'x-siwe-message',
+    description:
+      'Percent-encoded EIP-4361 SIWE message whose statement is "Authorize <METHOD> <path>" for this exact request',
+    required: true,
+  },
+  {
+    name: 'x-siwe-signature',
+    description: 'Signature over the x-siwe-message value',
+    required: true,
+  },
+];
 
 class PlayerDto implements Partial<Player> {
   @ApiProperty({
@@ -152,7 +170,8 @@ class EditStoryDto {
   slug: string;
 
   @ApiProperty({
-    description: 'The fields to update (partial story data)',
+    description:
+      'The fields to update (partial story data); creatorAddress, credits, sessions, requests and created_at are ignored',
     required: false,
     example: {
       title: 'Updated Title',
@@ -235,38 +254,64 @@ export class AppController {
 
   @Post('stories')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(SiweAuthGuard)
   @ApiOperation({
-    summary: 'Create a new story using AI',
+    summary: 'Create a new story using AI, owned by the SIWE signer',
   })
+  @ApiHeader(SIWE_HEADERS[0])
+  @ApiHeader(SIWE_HEADERS[1])
   @ApiBody({ type: CreateStoryDto })
   @ApiResponse({
     status: 201,
     description: 'New story created successfully',
   })
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or missing SIWE signature',
+  })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })
-  async createStory(@Body() body: CreateStoryDto): Promise<StoryData> {
+  async createStory(
+    @Body() body: CreateStoryDto,
+    @SiweAddress() creatorAddress: string,
+  ): Promise<StoryData> {
     this.logger.log('POST /stories endpoint called');
-    return this.appService.createStory(body.prompt);
+    return this.appService.createStory(body.prompt, creatorAddress);
   }
 
   @Post('stories/edit')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(SiweAuthGuard)
   @ApiOperation({
-    summary: 'Edit an existing story',
+    summary: "Edit an existing story, signed by the story's creator",
   })
+  @ApiHeader(SIWE_HEADERS[0])
+  @ApiHeader(SIWE_HEADERS[1])
   @ApiBody({ type: EditStoryDto })
   @ApiResponse({
     status: 200,
     description: 'Story updated successfully',
   })
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or missing SIWE signature',
+  })
+  @ApiResponse({
+    status: 403,
+    description: "Signer is not the story's creatorAddress",
+  })
   @ApiResponse({ status: 404, description: 'Story not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
-  editStory(@Body() body: EditStoryDto): Promise<StoryData> {
+  editStory(
+    @Body() body: EditStoryDto,
+    @SiweAddress() signerAddress: string,
+  ): Promise<StoryData> {
     this.logger.log('POST /stories/edit endpoint called');
-    return Promise.resolve(this.appService.editStory(body.slug, body.updates));
+    return Promise.resolve(
+      this.appService.editStory(body.slug, body.updates, signerAddress),
+    );
   }
 
   @Post('stories/credits')

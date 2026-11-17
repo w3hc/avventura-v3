@@ -121,7 +121,16 @@ export interface StoryData {
   sessions?: number;
   requests?: number;
   credits?: number;
+  creatorAddress?: string;
 }
+
+const PROTECTED_STORY_FIELDS: readonly string[] = [
+  'creatorAddress',
+  'credits',
+  'sessions',
+  'requests',
+  'created_at',
+];
 
 @Injectable()
 export class AppService implements OnModuleInit {
@@ -905,7 +914,10 @@ ${ENDING_RULE}${playerNameReminder}`;
     return story;
   }
 
-  async createStory(prompt: string): Promise<StoryData> {
+  async createStory(
+    prompt: string,
+    creatorAddress: string,
+  ): Promise<StoryData> {
     this.logger.log(`Creating new story from prompt: ${prompt}`);
 
     // Read the instruction file
@@ -1055,6 +1067,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         sessions: 0,
         requests: 0,
         credits: DEFAULT_CREDITS,
+        creatorAddress,
       };
 
       // Add the new story to the array
@@ -1095,6 +1108,7 @@ ${ENDING_RULE}${playerNameReminder}`;
   editStory(
     slug: string,
     updates: Partial<Omit<StoryData, 'created_at'>>,
+    signerAddress: string,
   ): StoryData {
     this.logger.log(`Editing story with slug: ${slug}`);
 
@@ -1121,10 +1135,28 @@ ${ENDING_RULE}${playerNameReminder}`;
       throw new HttpException('Story not found', HttpStatus.NOT_FOUND);
     }
 
+    const creatorAddress = stories[storyIndex].creatorAddress;
+    if (
+      !creatorAddress ||
+      creatorAddress.toLowerCase() !== signerAddress.toLowerCase()
+    ) {
+      this.logger.warn(`Rejected edit of story ${slug} by ${signerAddress}`);
+      throw new HttpException(
+        'Only the story creator can edit it',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const allowedUpdates = Object.fromEntries(
+      Object.entries(updates ?? {}).filter(
+        ([field]) => !PROTECTED_STORY_FIELDS.includes(field),
+      ),
+    ) as Partial<StoryData>;
+
     // Update the story with new values
     const updatedStory: StoryData = {
       ...stories[storyIndex],
-      ...updates,
+      ...allowedUpdates,
       updated_at: new Date().toISOString(),
     };
 

@@ -74,6 +74,17 @@ curl -X POST localhost:3000/stories/credits \
 
 The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an unknown slug 404.
 
+## Story ownership
+
+Creating and editing a story need a [Sign-In with Ethereum](https://eips.ethereum.org/EIPS/eip-4361) (SIWE) signature on each request, sent in two headers:
+
+- `x-siwe-message`: the SIWE message, percent-encoded (`encodeURIComponent`), whose statement is `Authorize <METHOD> <path>` for this exact request, such as `Authorize POST /stories` or `Authorize POST /stories/edit`
+- `x-siwe-signature`: the signature of that message
+
+The message must be on chain `SIWE_CHAIN_ID` (default `1`), have an `expirationTime` at most `SIWE_MAX_AGE_SECONDS` (default `300`) after its `issuedAt`, and use a nonce that hasn't been seen before. When `SIWE_ALLOWED_DOMAINS` is set (comma-separated, such as `avventura.fun,localhost:3001`), its domain must be one of them. Anything else returns 401.
+
+`POST /stories` stores the signer's lowercased address as the story's `creatorAddress` in `stories/stories.json`. `POST /stories/edit` returns 403 unless the signer is that address, and ignores updates to `creatorAddress`, `credits`, `sessions`, `requests` and `created_at`. A story without `creatorAddress`, such as one created before this check, can't be edited until the key is set by hand.
+
 ## Pricing
 
 Token rates (USD per million tokens) and the USD to EUR rate live in `pricing/pricing.json`. Until the first update has run, the committed `pricing/default-pricing.json` is used instead.

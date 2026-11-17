@@ -30,7 +30,8 @@
     "class-validator": "^0.15.1",
     "dotenv": "^18.0.5",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "viem": "^2.58.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.7",

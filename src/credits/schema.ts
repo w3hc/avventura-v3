@@ -18,7 +18,10 @@ CREATE TABLE IF NOT EXISTS ledger (
   kind TEXT NOT NULL CHECK (kind IN ('llm', 'topup', 'adjustment')),
   llm_cost INTEGER,
   amount INTEGER NOT NULL,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  gross INTEGER,
+  fee INTEGER,
+  stripe_payment_intent TEXT
 );
 
 CREATE INDEX IF NOT EXISTS ledger_owner ON ledger (owner);
@@ -36,7 +39,49 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE INDEX IF NOT EXISTS sessions_address ON sessions (address);
+
+CREATE TABLE IF NOT EXISTS stripe_customers (
+  owner TEXT PRIMARY KEY,
+  customer_id TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS stripe_events (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  processed_at TEXT NOT NULL
+);
 `;
+
+// Columns added to tables that existing databases created without them
+const ADDED_COLUMNS: Record<string, Record<string, string>> = {
+  ledger: {
+    gross: 'INTEGER',
+    fee: 'INTEGER',
+    stripe_payment_intent: 'TEXT',
+  },
+};
+
+const INDEXES = `
+CREATE UNIQUE INDEX IF NOT EXISTS ledger_stripe_payment_intent
+  ON ledger (stripe_payment_intent) WHERE stripe_payment_intent IS NOT NULL;
+`;
+
+function migrate(db: Database.Database): void {
+  for (const [table, columns] of Object.entries(ADDED_COLUMNS)) {
+    const existing = new Set(
+      db
+        .prepare<[], { name: string }>(`PRAGMA table_info(${table})`)
+        .all()
+        .map((column) => column.name),
+    );
+    for (const [name, type] of Object.entries(columns)) {
+      if (!existing.has(name)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+      }
+    }
+  }
+  db.exec(INDEXES);
+}
 
 // Amounts are stored as integer micro-euros
 const MICRO_PER_EUR = 1_000_000;
@@ -54,6 +99,9 @@ export function openDatabase(path: string = databasePath()): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
-  db.exec(SCHEMA);
+  db.transaction(() => {
+    db.exec(SCHEMA);
+    migrate(db);
+  }).immediate();
   return db;
 }

@@ -56,11 +56,11 @@ Each story owner has one balance in euros, keyed by their lowercased address (th
 Balances live in a SQLite database at `DATABASE_PATH` (default `data/avventura.db`), created on startup with two tables:
 
 - `balances`: one row per owner with its current amount
-- `ledger`: one row per movement, with the owner, story, game, kind (`llm`, `topup` or `adjustment`), LLM cost, amount and date
+- `ledger`: one row per movement, with the owner, story, game, kind (`llm`, `topup` or `adjustment`), LLM cost, amount and date. An `llm` row's amount is the price charged, its LLM cost what the AI call cost, so the margin is their difference
 
 Amounts are stored in micro-euros. Every charge and top-up writes its ledger row and updates the balance in a single transaction, so a balance always equals the sum of its ledger, even under concurrent requests.
 
-Every AI call made by `POST /stories`, `POST /start` and `POST /move` is priced in euros from the tokens it used (input, cache writes, cache reads and output, at the current `claude-sonnet-5-5` rates, see [Pricing](#pricing)). That amount is charged to the story's owner as an `llm` ledger row tagged with the story. `POST /start` and `POST /move` also add it to the game's `spent` key in `games/<id>.json`, and `POST /move` returns the game's `spent` total. Story creation is charged even when the AI response isn't a valid story, since the call was paid for.
+Every AI call made by `POST /stories`, `POST /start` and `POST /move` is priced in euros from the tokens it used (input, cache writes, cache reads and output, at the current `claude-sonnet-5-5` rates, see [Pricing](#pricing)). Its price adds the service fee: `price = llmCost × (1 + SERVICE_FEE_RATE)`, where `SERVICE_FEE_RATE` is a fraction (default `0.30`, so 30%). A missing or empty rate uses the default; a negative or non-numeric one also uses it, with a warning in the logs. The price is charged to the story's owner as an `llm` ledger row tagged with the story. `POST /start` and `POST /move` also add it to the game's `spent` key in `games/<id>.json`, and `POST /move` returns the game's `spent` total. Story creation is charged even when the AI response isn't a valid story, since the call was paid for.
 
 When the owner's balance is `0` or below, `POST /stories`, `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
 
@@ -87,7 +87,7 @@ The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an
 }
 ```
 
-`spent` is the total of the story's `llm` charges in euros.
+`spent` is the total of the story's `llm` charges in euros, service fee included.
 
 ## Story ownership
 

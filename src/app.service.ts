@@ -16,6 +16,7 @@ import { join } from 'path';
 import { randomBytes } from 'crypto';
 import { assertCreditsPassword } from './credits-password';
 import { CreditsService } from './credits/credits.service';
+import { priceOf, serviceFeeRate } from './credits/service-fee';
 import { PricingService, TokenUsage } from './pricing/pricing.service';
 
 interface Message {
@@ -147,6 +148,10 @@ export class AppService implements OnModuleInit {
   private readonly baseUrl = `https://api.infomaniak.com/1/ai/${process.env.INFOMANIAK_PRODUCT_ID}/openai/chat/completions`;
   private readonly gamesDir = join(process.cwd(), 'games');
   private readonly costsFilePath = join(process.cwd(), 'costs.json');
+  private readonly serviceFeeRate = serviceFeeRate(
+    process.env.SERVICE_FEE_RATE,
+    (message) => this.logger.warn(message),
+  );
 
   constructor(
     private readonly pricingService: PricingService,
@@ -305,21 +310,26 @@ export class AppService implements OnModuleInit {
     return owner;
   }
 
+  private priceFor(cost: number): number {
+    return roundEur(priceOf(cost, this.serviceFeeRate));
+  }
+
   private chargeOwner(
     owner: string,
     cost: number,
     story?: string,
     gameId?: string,
   ): void {
+    const price = this.priceFor(cost);
     try {
       const credits = this.creditsService.charge(owner, {
         story,
         game: gameId,
         llmCost: roundEur(cost),
-        amount: roundEur(cost),
+        amount: price,
       });
       this.logger.debug(
-        `Charged €${roundEur(cost)} to ${owner} for story ${story}, credits left: €${credits}`,
+        `Charged €${price} (LLM cost €${roundEur(cost)}) to ${owner} for story ${story}, credits left: €${credits}`,
       );
     } catch (error) {
       this.logger.error(
@@ -552,7 +562,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         players: validPlayers,
         difficulty,
         textLength,
-        spent: roundEur(totalCost),
+        spent: this.priceFor(totalCost),
       };
 
       this.writeGame(newGame);
@@ -867,7 +877,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     previously: string,
     currentStep: Step,
     nextSteps: Step[],
-    cost = 0,
+    price = 0,
   ): Game {
     const game = this.readGame(gameId);
 
@@ -878,7 +888,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     game.previously = previously;
     game.currentStep = currentStep;
     game.nextSteps = nextSteps;
-    game.spent = roundEur((game.spent ?? 0) + roundEur(cost));
+    game.spent = roundEur((game.spent ?? 0) + price);
     this.writeGame(game);
     this.logger.log(`Updated game state for ID: ${gameId}`);
     return game;
@@ -1507,7 +1517,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         aiResponse.previously,
         newCurrentStep,
         nextSteps,
-        totalCost,
+        this.priceFor(totalCost),
       );
       this.writeCost(gameId, totalCost);
       this.chargeOwner(owner, totalCost, game.story, gameId);

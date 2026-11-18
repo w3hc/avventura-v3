@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Each AI call is charged its price, `llmCost × (1 + SERVICE_FEE_RATE)` with `SERVICE_FEE_RATE` defaulting to `0.30`. `llm` ledger rows store the price in `amount` and the LLM cost in `llm_cost`, and game `spent`, the 402 check and `GET /me` `spent` use the price. A negative or non-numeric rate falls back to `0.30` with a warning ([#43](https://github.com/w3hc/avventura-v3/issues/43)).
+- `.env.template` lists `SERVICE_FEE_RATE` ([#43](https://github.com/w3hc/avventura-v3/issues/43)).
+
 - `GET /auth/nonce`, `POST /auth/siwe` and `POST /auth/logout`: sign in once with a SIWE message whose statement is `Sign in to Avventura` and a single-use nonce from the API, and get a bearer token for `SESSION_TTL_SECONDS` (default one day) ([#47](https://github.com/w3hc/avventura-v3/issues/47)).
 - Nonces and sessions are stored in SQLite in `siwe_nonces` and `sessions`, with only the SHA-256 hash of each token, and survive a restart ([#47](https://github.com/w3hc/avventura-v3/issues/47)).
 - `.env.template` lists `SESSION_TTL_SECONDS` ([#47](https://github.com/w3hc/avventura-v3/issues/47)).

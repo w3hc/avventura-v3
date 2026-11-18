@@ -33,6 +33,7 @@ import {
   DIFFICULTIES,
   Difficulty,
   Game,
+  Me,
   Player,
   Step,
   StoryData,
@@ -270,6 +271,7 @@ export class AppController {
     status: 401,
     description: 'Invalid or missing SIWE signature',
   })
+  @ApiResponse({ status: 402, description: 'The creator is out of credits' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })
   async createStory(
@@ -278,6 +280,28 @@ export class AppController {
   ): Promise<StoryData> {
     this.logger.log('POST /stories endpoint called');
     return this.appService.createStory(body.prompt, creatorAddress);
+  }
+
+  @Get('me')
+  @UseGuards(SiweAuthGuard)
+  @ApiOperation({
+    summary: "The signer's address, balance (EUR) and stories with their spend",
+  })
+  @ApiHeader(SIWE_HEADERS[0])
+  @ApiHeader(SIWE_HEADERS[1])
+  @ApiResponse({
+    status: 200,
+    description:
+      'Address, balance and owned stories, each with its LLM spend in EUR',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or missing SIWE signature',
+  })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  getMe(@SiweAddress() address: string): Me {
+    this.logger.log('GET /me endpoint called');
+    return this.appService.getMe(address);
   }
 
   @Post('stories/edit')

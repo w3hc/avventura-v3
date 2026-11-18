@@ -1205,6 +1205,38 @@ describe('AppController', () => {
       ).rejects.toMatchObject({ status: 402 });
     });
 
+    it("should return the signer's balance and stories with their spend", () => {
+      const service = internals(appController['appService']);
+      service.chargeOwner(CREATOR, 0.25, 'funded', 'GAME');
+      service.chargeOwner(CREATOR, 0.5, 'funded', 'GAME');
+
+      expect(
+        appController.getMe(CREATOR.toUpperCase().replace('0X', '0x')),
+      ).toEqual({
+        address: CREATOR,
+        balance: 14.25,
+        stories: [
+          { slug: 'funded', title: undefined, spent: 0.75 },
+          { slug: 'second', title: undefined, spent: 0 },
+        ],
+      });
+    });
+
+    it('should list stories without a creator under OWNER_ADDRESS', () => {
+      expect(appController.getMe(OWNER).stories).toEqual([
+        { slug: 'legacy', title: undefined, spent: 0 },
+      ]);
+    });
+
+    it('should return the default balance for a new address', () => {
+      expect(appController.getMe(STRANGER)).toEqual({
+        address: STRANGER,
+        balance: 100,
+        stories: [],
+      });
+      expect(balance(STRANGER)).toBeNull();
+    });
+
     it('should add credits to an address and return the new balance', () => {
       const result = appController.addCredits({
         address: CREATOR,

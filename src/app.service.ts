@@ -125,6 +125,12 @@ export interface StoryData {
   creatorAddress?: string;
 }
 
+export interface Me {
+  address: string;
+  balance: number;
+  stories: { slug: string; title: string; spent: number }[];
+}
+
 const PROTECTED_STORY_FIELDS: readonly string[] = [
   'creatorAddress',
   'credits',
@@ -1235,6 +1241,40 @@ ${ENDING_RULE}${playerNameReminder}`;
     }
 
     return updatedStory;
+  }
+
+  getMe(address: string): Me {
+    const owner = address.toLowerCase();
+    const stories = this.readAllStories().filter(
+      (story) => this.ownerOf(story) === owner,
+    );
+    const spent = this.creditsService.spentByStory(
+      stories.map((story) => story.slug),
+    );
+    return {
+      address: owner,
+      balance: this.creditsService.balance(owner) ?? DEFAULT_CREDITS,
+      stories: stories.map((story) => ({
+        slug: story.slug,
+        title: story.title,
+        spent: spent[story.slug],
+      })),
+    };
+  }
+
+  private readAllStories(): StoryData[] {
+    try {
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      return JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
+    } catch (error) {
+      this.logger.error(
+        `Failed to load stories: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new HttpException(
+        'Failed to load stories',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   addCredits(

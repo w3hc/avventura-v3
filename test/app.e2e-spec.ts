@@ -121,15 +121,17 @@ describe('AppController (e2e)', () => {
 
   const createStory = jest.fn().mockResolvedValue({ slug: 'new-story' });
   const editStory = jest.fn().mockReturnValue({ slug: 'new-story' });
+  const getMe = jest.fn().mockReturnValue({ balance: 100, stories: [] });
 
   beforeEach(async () => {
     createStory.mockClear();
     editStory.mockClear();
+    getMe.mockClear();
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     })
       .overrideProvider(AppService)
-      .useValue({ ...mockAppService, createStory, editStory })
+      .useValue({ ...mockAppService, createStory, editStory, getMe })
       .compile();
 
     app = moduleFixture.createNestApplication();
@@ -302,5 +304,26 @@ describe('AppController (e2e)', () => {
       { title: 'x' },
       wallet.address.toLowerCase(),
     );
+  });
+
+  it('/me (GET) - rejects a request without SIWE headers', async () => {
+    await request(app.getHttpServer()).get('/me').expect(401);
+    expect(getMe).not.toHaveBeenCalled();
+  });
+
+  it('/me (GET) - rejects a signature for another route', async () => {
+    await request(app.getHttpServer())
+      .get('/me')
+      .set(await siweHeaders('Authorize POST /stories'))
+      .expect(401);
+    expect(getMe).not.toHaveBeenCalled();
+  });
+
+  it('/me (GET) - returns the signer account', async () => {
+    await request(app.getHttpServer())
+      .get('/me')
+      .set(await siweHeaders('Authorize GET /me'))
+      .expect(200, { balance: 100, stories: [] });
+    expect(getMe).toHaveBeenCalledWith(wallet.address.toLowerCase());
   });
 });

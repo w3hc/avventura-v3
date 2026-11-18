@@ -27,7 +27,7 @@ import { BillingService, MAX_TOPUP, MIN_TOPUP } from './billing.service';
 
 export class CheckoutDto {
   @ApiProperty({
-    description: `Amount of credits to buy in EUR, from ${MIN_TOPUP} to ${MAX_TOPUP}, in cents at most`,
+    description: `Amount to pay in EUR, from ${MIN_TOPUP} to ${MAX_TOPUP} with at most 2 decimals. The balance is credited this amount minus the Stripe fee`,
     example: 20,
   })
   @IsNumber({ maxDecimalPlaces: 2, allowNaN: false, allowInfinity: false })
@@ -57,7 +57,10 @@ export class BillingController {
     description: 'Invalid, expired or missing session token',
   })
   @ApiResponse({ status: 502, description: 'Stripe request failed' })
-  @ApiResponse({ status: 503, description: 'Billing is not configured' })
+  @ApiResponse({
+    status: 503,
+    description: 'STRIPE_SECRET_KEY or STRIPE_WEBHOOK_SECRET is not set',
+  })
   checkout(
     @Body() body: CheckoutDto,
     @SessionAddress() owner: string,

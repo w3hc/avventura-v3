@@ -27,6 +27,7 @@ interface Statements {
   db: Database.Database;
   customer: Database.Statement<[string], { customer_id: string }>;
   insertCustomer: Database.Statement<[string, string]>;
+  replaceCustomer: Database.Statement<[string, string, string]>;
 }
 
 const returnUrl = (topup: 'success' | 'cancel'): string => {
@@ -34,6 +35,11 @@ const returnUrl = (topup: 'success' | 'cancel'): string => {
   url.searchParams.set('topup', topup);
   return url.toString();
 };
+
+const isMissingCustomer = (error: unknown): boolean =>
+  error instanceof Stripe.errors.StripeInvalidRequestError &&
+  error.code === 'resource_missing' &&
+  error.param === 'customer';
 
 @Injectable()
 export class BillingService implements OnModuleDestroy {
@@ -65,15 +71,21 @@ export class BillingService implements OnModuleDestroy {
         `INSERT INTO stripe_customers (owner, customer_id) VALUES (?, ?)
          ON CONFLICT DO NOTHING`,
       ),
+      replaceCustomer: db.prepare(
+        `UPDATE stripe_customers SET customer_id = ?
+         WHERE owner = ? AND customer_id = ?`,
+      ),
     };
     return this.statements;
   }
 
-  private client(): Stripe {
-    if (!this.stripe) {
+  // Both are required, so no payment is taken that the webhook can't credit
+  private configured(): { stripe: Stripe; webhookSecret: string } {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!this.stripe || !webhookSecret) {
       throw new ServiceUnavailableException('Billing is not configured');
     }
-    return this.stripe;
+    return { stripe: this.stripe, webhookSecret };
   }
 
   // Stripe errors become 502 so the caller sees the upstream failed
@@ -89,28 +101,34 @@ export class BillingService implements OnModuleDestroy {
     }
   }
 
-  // The owner's Stripe Customer id, created on first use
-  async customerFor(owner: string): Promise<string> {
+  // The owner's Stripe Customer id, created on first use, or again when
+  // Stripe no longer knows the `stale` one (deleted, or from test mode)
+  async customerFor(owner: string, stale?: string): Promise<string> {
     const statements = this.prepare();
-    const existing = statements.customer.get(owner);
-    if (existing) {
-      return existing.customer_id;
+    const existing = statements.customer.get(owner)?.customer_id;
+    if (existing && existing !== stale) {
+      return existing;
     }
     const customer = await this.call(
       'create the customer',
-      this.client().customers.create({ metadata: { owner } }),
+      this.configured().stripe.customers.create(
+        { metadata: { owner } },
+        stale ? undefined : { idempotencyKey: `customer-${owner}` },
+      ),
     );
-    statements.insertCustomer.run(owner, customer.id);
+    if (stale) {
+      statements.replaceCustomer.run(customer.id, owner, stale);
+    } else {
+      statements.insertCustomer.run(owner, customer.id);
+    }
     return statements.customer.get(owner)!.customer_id;
   }
 
-  // A Checkout Session for `amount` EUR of credits for `owner`
+  // A Checkout Session for paying `amount` EUR, credited net of the fee
   async checkout(owner: string, amount: number): Promise<{ url: string }> {
-    const stripe = this.client();
-    const customer = await this.customerFor(owner);
+    const { stripe } = this.configured();
     const metadata = { kind: 'topup' satisfies PaymentKind, owner };
-    const session = await this.call(
-      'create the checkout session',
+    const create = (customer: string) =>
       stripe.checkout.sessions.create({
         mode: 'payment',
         customer,
@@ -133,6 +151,16 @@ export class BillingService implements OnModuleDestroy {
           enabled: true,
           invoice_data: { footer: INVOICE_FOOTER, metadata },
         },
+      });
+    const customer = await this.customerFor(owner);
+    const session = await this.call(
+      'create the checkout session',
+      create(customer).catch(async (error: unknown) => {
+        if (!isMissingCustomer(error)) {
+          throw error;
+        }
+        this.logger.warn(`Stripe no longer has ${customer}, creating another`);
+        return create(await this.customerFor(owner, customer));
       }),
     );
     if (!session.url) {
@@ -147,17 +175,13 @@ export class BillingService implements OnModuleDestroy {
     rawBody: Buffer | undefined,
     signature: string | undefined,
   ): Promise<void> {
-    const stripe = this.client();
-    const secret = process.env.STRIPE_WEBHOOK_SECRET;
-    if (!secret) {
-      throw new ServiceUnavailableException('Billing is not configured');
-    }
+    const { stripe, webhookSecret } = this.configured();
     if (!rawBody || !signature) {
       throw new BadRequestException('Missing Stripe signature');
     }
     let event: Stripe.Event;
     try {
-      event = stripe.webhooks.constructEvent(rawBody, signature, secret);
+      event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
     } catch {
       throw new BadRequestException('Invalid Stripe signature');
     }
@@ -203,7 +227,7 @@ export class BillingService implements OnModuleDestroy {
   ): Promise<number | null> {
     const intent = await this.call(
       'retrieve the payment',
-      this.client().paymentIntents.retrieve(paymentIntentId, {
+      this.configured().stripe.paymentIntents.retrieve(paymentIntentId, {
         expand: ['latest_charge.balance_transaction'],
       }),
     );
@@ -225,10 +249,12 @@ export class BillingService implements OnModuleDestroy {
     if (!transaction || typeof transaction === 'string') {
       throw new Error(`${intent.id} has no balance transaction yet`);
     }
+    // Acknowledged so Stripe doesn't retry what can't change: credit by hand
     if (transaction.currency !== 'eur') {
-      throw new Error(
-        `${intent.id} settled in ${transaction.currency}, expected eur`,
+      this.logger.error(
+        `Skipped ${intent.id}: settled in ${transaction.currency}, expected eur`,
       );
+      return null;
     }
     const balance = this.creditsService.creditPayment(
       {

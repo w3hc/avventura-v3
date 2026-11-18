@@ -147,9 +147,34 @@ describe('BillingService', () => {
       await billing.checkout(OWNER, 5);
       await billing.checkout(OWNER, 6);
       expect(stripe.customers.create).toHaveBeenCalledTimes(1);
-      expect(stripe.customers.create).toHaveBeenCalledWith({
-        metadata: { owner: OWNER },
+      expect(stripe.customers.create).toHaveBeenCalledWith(
+        { metadata: { owner: OWNER } },
+        { idempotencyKey: `customer-${OWNER}` },
+      );
+    });
+
+    it('replaces a customer Stripe no longer has', async () => {
+      await billing.checkout(OWNER, 5);
+      stripe.customers.create.mockResolvedValue({ id: 'cus_2' });
+      stripe.checkout.sessions.create.mockRejectedValueOnce(
+        new Stripe.errors.StripeInvalidRequestError({
+          message: 'No such customer',
+          code: 'resource_missing',
+          param: 'customer',
+        }),
+      );
+      await expect(billing.checkout(OWNER, 5)).resolves.toEqual({
+        url: 'https://checkout.stripe.com/c/1',
       });
+      expect(stripe.customers.create).toHaveBeenLastCalledWith(
+        { metadata: { owner: OWNER } },
+        undefined,
+      );
+      expect(stripe.checkout.sessions.create).toHaveBeenLastCalledWith(
+        expect.objectContaining({ customer: 'cus_2' }),
+      );
+      await billing.checkout(OWNER, 5);
+      expect(stripe.customers.create).toHaveBeenCalledTimes(2);
     });
 
     it('returns 502 when Stripe fails', async () => {
@@ -159,6 +184,14 @@ describe('BillingService', () => {
       await expect(billing.checkout(OWNER, 5)).rejects.toThrow(
         BadGatewayException,
       );
+    });
+
+    it('returns 503 without STRIPE_WEBHOOK_SECRET', async () => {
+      delete process.env.STRIPE_WEBHOOK_SECRET;
+      await expect(billing.checkout(OWNER, 5)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+      expect(stripe.checkout.sessions.create).not.toHaveBeenCalled();
     });
 
     it('returns 503 without a Stripe client', async () => {
@@ -238,13 +271,11 @@ describe('BillingService', () => {
       expect(credits.balance(OWNER)).toBe(109.41);
     });
 
-    it('refuses a payment not settled in euros', async () => {
+    it('acknowledges a payment not settled in euros without crediting', async () => {
       stripe.paymentIntents.retrieve.mockResolvedValue(
         paymentIntent({ amount: 1100, fee: 60, net: 1040, currency: 'usd' }),
       );
-      await expect(deliver(signed(checkoutCompleted()))).rejects.toThrow(
-        'settled in usd',
-      );
+      await deliver(signed(checkoutCompleted()));
       expect(credits.balance(OWNER)).toBeNull();
     });
 

@@ -1,0 +1,45 @@
+import Database from 'better-sqlite3';
+import { mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+
+export type LedgerKind = 'llm' | 'topup' | 'adjustment';
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS balances (
+  owner TEXT PRIMARY KEY,
+  amount INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS ledger (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner TEXT NOT NULL REFERENCES balances (owner),
+  story TEXT,
+  game TEXT,
+  kind TEXT NOT NULL CHECK (kind IN ('llm', 'topup', 'adjustment')),
+  llm_cost INTEGER,
+  amount INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ledger_owner ON ledger (owner);
+`;
+
+// Amounts are stored as integer micro-euros
+const MICRO_PER_EUR = 1_000_000;
+
+export const toMicro = (eur: number): number => Math.round(eur * MICRO_PER_EUR);
+
+export const fromMicro = (micro: number): number => micro / MICRO_PER_EUR;
+
+export const databasePath = (): string =>
+  process.env.DATABASE_PATH || join(process.cwd(), 'data', 'avventura.db');
+
+export function openDatabase(path: string = databasePath()): Database.Database {
+  mkdirSync(dirname(path), { recursive: true });
+  const db = new Database(path);
+  db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
+  db.pragma('foreign_keys = ON');
+  db.exec(SCHEMA);
+  return db;
+}

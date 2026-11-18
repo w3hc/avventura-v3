@@ -27,6 +27,7 @@ describe('AppController', () => {
   let appController: AppController;
 
   beforeEach(async () => {
+    process.env.SERVICE_FEE_RATE = '0.30';
     app = await Test.createTestingModule({
       controllers: [AppController],
       providers: [AppService, PricingService, CreditsService, AuthService],
@@ -36,6 +37,7 @@ describe('AppController', () => {
   });
 
   afterEach(async () => {
+    delete process.env.SERVICE_FEE_RATE;
     await app.close();
   });
 
@@ -1474,19 +1476,15 @@ describe('AppController', () => {
 
     it('should charge the LLM cost alone with a zero SERVICE_FEE_RATE', () => {
       process.env.SERVICE_FEE_RATE = '0';
-      try {
-        const zeroFee = new AppService(
-          app.get(PricingService),
-          app.get(CreditsService),
-        );
-        internals(zeroFee).chargeOwner(OWNER, 0.1, 'funded');
-        expect(balance(OWNER)).toBe(14.9);
-        expect(llmRows('funded')).toEqual([
-          { llmCost: 100_000, amount: -100_000 },
-        ]);
-      } finally {
-        delete process.env.SERVICE_FEE_RATE;
-      }
+      const zeroFee = new AppService(
+        app.get(PricingService),
+        app.get(CreditsService),
+      );
+      internals(zeroFee).chargeOwner(OWNER, 0.1, 'funded');
+      expect(balance(OWNER)).toBe(14.9);
+      expect(llmRows('funded')).toEqual([
+        { llmCost: 100_000, amount: -100_000 },
+      ]);
     });
 
     it.each([

@@ -800,6 +800,7 @@ describe('AppController', () => {
         .mockReturnValue(0.1);
       const writeCost = mockWriteCost();
       app.get(CreditsService).open(OWNER, 100);
+      app.get(CreditsService).skipFreeStories([OWNER]);
 
       const story = await appController['appService'].createStory(
         'A prompt',
@@ -827,6 +828,7 @@ describe('AppController', () => {
     it('refuses to create a story with 402 when the owner is out of credits', async () => {
       process.env.ANTHROPIC_API_KEY = 'test';
       app.get(CreditsService).open(OWNER, 0);
+      app.get(CreditsService).skipFreeStories([OWNER]);
       const fetchSpy = jest.spyOn(global, 'fetch');
 
       await expect(
@@ -848,6 +850,7 @@ describe('AppController', () => {
       );
       const writeCost = mockWriteCost();
       app.get(CreditsService).open(OWNER, 100);
+      app.get(CreditsService).skipFreeStories([OWNER]);
 
       await expect(
         appController['appService'].createStory('A prompt', OWNER),
@@ -1300,6 +1303,7 @@ describe('AppController', () => {
         'checkAutoTopup',
       );
       app.get(CreditsService).open(STRANGER, 0);
+      app.get(CreditsService).skipFreeStories([STRANGER]);
       await expect(
         appController['appService'].createStory('A prompt', STRANGER),
       ).rejects.toMatchObject({ status: 402 });
@@ -1587,6 +1591,235 @@ describe('AppController', () => {
       expect(writeSpy).toHaveBeenCalledWith(
         expect.objectContaining({ spent: expected }),
       );
+    });
+  });
+
+  describe('free story', () => {
+    let dir: string;
+    let storiesPath: string;
+
+    const step: Step = { desc: 'A step', options: ['A'], action: 'continue' };
+
+    const credits = () => app.get(CreditsService);
+
+    const internals = () =>
+      appController['appService'] as unknown as {
+        generateSteps: (...args: unknown[]) => Promise<unknown>;
+        readGame: (gameId: string) => Game | null;
+        writeGame: (game: Game) => void;
+        writeCost: (gameId: string, cost: number) => void;
+      };
+
+    const platformRows = () =>
+      credits()
+        ['statements']!.db.prepare(
+          `SELECT story, llm_cost AS llmCost, amount FROM ledger
+           WHERE owner = 'platform' ORDER BY id`,
+        )
+        .all();
+
+    const mockStory = (slug: string) =>
+      jest.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({ slug, title: slug, content: '#' }),
+              },
+            ],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+        ),
+      );
+
+    const create = (slug: string) => {
+      mockStory(slug);
+      return appController['appService'].createStory('A prompt', STRANGER);
+    };
+
+    const createFree = async () => {
+      await create('first');
+      credits().open(STRANGER, 5);
+    };
+
+    const mockGenerate = () => {
+      const service = internals();
+      jest.spyOn(service, 'writeGame').mockImplementation(() => undefined);
+      return jest.spyOn(service, 'generateSteps').mockResolvedValue({
+        aiResponse: {
+          currentStep: step,
+          previously: 'recap',
+          nextSteps: [step, step, step],
+        },
+        cost: 0.1,
+      });
+    };
+
+    const mockGame = () =>
+      jest.spyOn(internals(), 'readGame').mockReturnValue({
+        id: 'GAME',
+        story: 'first',
+        language: 'en',
+        previously: '',
+        currentStep: { ...step, options: ['A', 'B', 'C'] },
+        nextSteps: [step, step, step],
+      });
+
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), 'avventura-'));
+      mkdirSync(join(dir, 'stories'));
+      storiesPath = join(dir, 'stories', 'stories.json');
+      writeFileSync(storiesPath, '[]');
+      writeFileSync(join(dir, 'avventura-edit-instruction-file.md'), 'Rules');
+      jest.spyOn(process, 'cwd').mockReturnValue(dir);
+      jest.spyOn(internals(), 'writeCost').mockImplementation(() => undefined);
+      jest
+        .spyOn(appController['appService']['pricingService'], 'costEur')
+        .mockReturnValue(0.1);
+      process.env.ANTHROPIC_API_KEY = 'test';
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+      delete process.env.ANTHROPIC_API_KEY;
+    });
+
+    it("charges a creator's first story to the platform", async () => {
+      await create('first');
+
+      expect(credits().freeStory(STRANGER)).toBe('first');
+      expect(credits().balance(STRANGER)).toBeNull();
+      expect(platformRows()).toEqual([
+        { story: 'first', llmCost: 100_000, amount: -130_000 },
+      ]);
+    });
+
+    it('bills later stories to the creator', async () => {
+      await create('first');
+
+      await expect(create('second')).rejects.toMatchObject({
+        status: 402,
+        message: 'Not enough credits',
+      });
+      credits().topUp(STRANGER, 5);
+      await create('second');
+
+      expect(credits().freeStory(STRANGER)).toBe('first');
+      expect(credits().balance(STRANGER)).toBe(4.87);
+      expect(llmRows('second')).toEqual([
+        { llmCost: 100_000, amount: -130_000 },
+      ]);
+    });
+
+    it('grants no new free story after the free one is edited or deleted', async () => {
+      await create('first');
+      appController['appService'].editStory(
+        'first',
+        { title: 'Renamed' },
+        STRANGER,
+      );
+      writeFileSync(storiesPath, '[]');
+
+      await expect(create('second')).rejects.toMatchObject({ status: 402 });
+      expect(credits().freeStory(STRANGER)).toBe('first');
+    });
+
+    it('gives no free story to owners who have stories at startup', () => {
+      writeFileSync(
+        storiesPath,
+        JSON.stringify([{ slug: 'old', ownerAddress: OWNER }]),
+      );
+      appController['appService'].onModuleInit();
+
+      expect(credits().canClaimFreeStory(OWNER)).toBe(false);
+      expect(credits().canClaimFreeStory(STRANGER)).toBe(true);
+    });
+
+    it('keeps the free story claimable when its creation fails', async () => {
+      jest.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: 'not json' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+        ),
+      );
+      await expect(
+        appController['appService'].createStory('A prompt', STRANGER),
+      ).rejects.toMatchObject({ status: 502 });
+
+      expect(credits().canClaimFreeStory(STRANGER)).toBe(true);
+      expect(platformRows()).toEqual([
+        { story: null, llmCost: 100_000, amount: -130_000 },
+      ]);
+    });
+
+    it("never touches the creator's balance or auto top-up", async () => {
+      await createFree();
+      const checkAutoTopup = jest.spyOn(
+        app.get(BillingService),
+        'checkAutoTopup',
+      );
+      mockGenerate();
+      mockGame();
+
+      const game = await appController['appService'].start('first', 'en');
+      await appController['appService'].move('GAME', 0);
+
+      expect(game.spent).toBe(0.13);
+      expect(credits().balance(STRANGER)).toBe(5);
+      expect(credits().freeStorySpent('first')).toBe(0.39);
+      expect(checkAutoTopup).not.toHaveBeenCalled();
+    });
+
+    it.each(['start', 'move'])(
+      'refuses to %s with 402 once the free story reaches the limit',
+      async (route) => {
+        await createFree();
+        credits().chargeFreeStory({
+          story: 'first',
+          llmCost: 1.4,
+          amount: 1.8,
+        });
+        const generate = mockGenerate();
+        mockGame();
+        const checkAutoTopup = jest.spyOn(
+          app.get(BillingService),
+          'checkAutoTopup',
+        );
+
+        const request = () =>
+          route === 'start'
+            ? appController['appService'].start('first', 'en')
+            : appController['appService'].move('GAME', 0);
+
+        await request();
+        expect(credits().freeStorySpent('first')).toBe(2.06);
+        await expect(request()).rejects.toMatchObject({
+          status: 402,
+          message: 'Free story limit reached',
+        });
+        expect(generate).toHaveBeenCalledTimes(1);
+        expect(credits().balance(STRANGER)).toBe(5);
+        expect(checkAutoTopup).not.toHaveBeenCalled();
+      },
+    );
+
+    it('reads the limit from FREE_STORY_LIMIT', async () => {
+      await createFree();
+      process.env.FREE_STORY_LIMIT = '0.1';
+      const limited = new AppService(
+        app.get(PricingService),
+        credits(),
+        app.get(BillingService),
+      );
+      delete process.env.FREE_STORY_LIMIT;
+
+      await expect(limited.start('first', 'en')).rejects.toMatchObject({
+        status: 402,
+        message: 'Free story limit reached',
+      });
     });
   });
 });

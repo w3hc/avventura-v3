@@ -20,7 +20,9 @@ import {
   AutoTopupState,
   autoTopupState,
   CreditsService,
+  FREE_STORY_OWNER,
 } from './credits/credits.service';
+import { freeStoryLimit } from './credits/free-story';
 import { priceOf, serviceFeeRate } from './credits/service-fee';
 import { PricingService, TokenUsage } from './pricing/pricing.service';
 
@@ -159,6 +161,10 @@ export class AppService implements OnModuleInit {
     process.env.SERVICE_FEE_RATE,
     (message) => this.logger.warn(message),
   );
+  private readonly freeStoryLimit = freeStoryLimit(
+    process.env.FREE_STORY_LIMIT,
+    (message) => this.logger.warn(message),
+  );
 
   constructor(
     private readonly pricingService: PricingService,
@@ -178,6 +184,7 @@ export class AppService implements OnModuleInit {
       ) as LegacyStoryData[];
       this.renameCreatorAddresses(storiesPath, stories);
       this.moveStoryBalances(stories);
+      this.skipFreeStories(stories);
     }
   }
 
@@ -229,6 +236,16 @@ export class AppService implements OnModuleInit {
         `DEFAULT_OWNER_ADDRESS is not set: ${ownerless.length} stories without an ownerAddress keep their balance and can't be played`,
       );
     }
+  }
+
+  // Owners who already have stories don't get a free one
+  private skipFreeStories(stories: StoryData[]): void {
+    const owners = new Set(
+      stories
+        .map((story) => this.ownerOf(story))
+        .filter((owner) => owner !== null),
+    );
+    this.creditsService.skipFreeStories([...owners]);
   }
 
   private generateGameId(): string {
@@ -326,24 +343,55 @@ export class AppService implements OnModuleInit {
     return owner;
   }
 
+  // Returns who pays for a request on the story: the platform for its
+  // owner's free story until its total price reaches FREE_STORY_LIMIT,
+  // the owner otherwise
+  private payerOf(story: StoryData): { owner: string; free: boolean } {
+    const owner = this.ownerOf(story);
+    if (owner === null || this.creditsService.freeStory(owner) !== story.slug) {
+      return { owner: this.assertCredits(owner, story.slug), free: false };
+    }
+    const spent = this.creditsService.freeStorySpent(story.slug);
+    if (spent >= this.freeStoryLimit) {
+      this.logger.warn(
+        `Free story ${story.slug} reached its limit (€${spent} of €${this.freeStoryLimit})`,
+      );
+      throw new HttpException(
+        'Free story limit reached',
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+    return { owner, free: true };
+  }
+
   private priceFor(cost: number): number {
     return roundEur(priceOf(cost, this.serviceFeeRate));
   }
 
+  // A free story's requests are charged to FREE_STORY_OWNER instead
   private chargeOwner(
     owner: string,
     cost: number,
     story?: string,
     gameId?: string,
+    free = false,
   ): void {
     const price = this.priceFor(cost);
+    const entry = {
+      story,
+      game: gameId,
+      llmCost: roundEur(cost),
+      amount: price,
+    };
     try {
-      const credits = this.creditsService.charge(owner, {
-        story,
-        game: gameId,
-        llmCost: roundEur(cost),
-        amount: price,
-      });
+      if (free) {
+        this.creditsService.chargeFreeStory(entry);
+        this.logger.debug(
+          `Charged €${price} (LLM cost €${roundEur(cost)}) to ${FREE_STORY_OWNER} for ${owner}'s free story ${story}`,
+        );
+        return;
+      }
+      const credits = this.creditsService.charge(owner, entry);
       this.logger.debug(
         `Charged €${price} (LLM cost €${roundEur(cost)}) to ${owner} for story ${story}, credits left: €${credits}`,
       );
@@ -450,7 +498,7 @@ export class AppService implements OnModuleInit {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-    const owner = this.assertCredits(this.ownerOf(storyData), story);
+    const { owner, free } = this.payerOf(storyData);
 
     // Use prompt caching for static story instructions (cache_control)
     const cachedStoryInstructions = `# INSTRUCTIONS FOR THE MULTILINGUAL ADVENTURE
@@ -584,7 +632,7 @@ ${ENDING_RULE}${playerNameReminder}`;
 
       this.writeGame(newGame);
       this.writeCost(newGame.id, totalCost);
-      this.chargeOwner(owner, totalCost, story, newGame.id);
+      this.chargeOwner(owner, totalCost, story, newGame.id, free);
 
       this.logger.log(`Created new game with ID: ${newGame.id}`);
       return newGame;
@@ -1012,7 +1060,12 @@ ${ENDING_RULE}${playerNameReminder}`;
 
   async createStory(prompt: string, ownerAddress: string): Promise<StoryData> {
     this.logger.log(`Creating new story from prompt: ${prompt}`);
-    const owner = this.assertCredits(ownerAddress.toLowerCase());
+    const owner = ownerAddress.toLowerCase();
+    // A first story is free until it is saved and claimed
+    let free = this.creditsService.canClaimFreeStory(owner);
+    if (!free) {
+      this.assertCredits(owner);
+    }
 
     // Read the instruction file
     let instructions: string;
@@ -1193,10 +1246,13 @@ ${ENDING_RULE}${playerNameReminder}`;
           );
         }
 
+        if (free) {
+          free = this.creditsService.claimFreeStory(owner, completeStory.slug);
+        }
         return completeStory;
       } finally {
         this.writeCost(`story:${slug ?? 'unparsed'}`, cost);
-        this.chargeOwner(owner, cost, slug);
+        this.chargeOwner(owner, cost, slug, undefined, free);
       }
     } catch (error) {
       if (error instanceof HttpException) {
@@ -1431,7 +1487,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-    const owner = this.assertCredits(this.ownerOf(storyData), game.story);
+    const { owner, free } = this.payerOf(storyData);
 
     // Use prompt caching for static story instructions (cache_control)
     const cachedStoryInstructions = `# STORY INSTRUCTIONS
@@ -1539,7 +1595,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         this.priceFor(totalCost),
       );
       this.writeCost(gameId, totalCost);
-      this.chargeOwner(owner, totalCost, game.story, gameId);
+      this.chargeOwner(owner, totalCost, game.story, gameId, free);
 
       return {
         previously: aiResponse.previously,

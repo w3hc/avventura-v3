@@ -77,7 +77,7 @@ curl -X POST localhost:3000/credits \
 
 The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an invalid address 400.
 
-`GET /me` returns the signer's account, with a SIWE signature whose statement is `Authorize GET /me` (see [Story ownership](#story-ownership)):
+`GET /me` returns the signed-in account, with a bearer token (see [Story ownership](#story-ownership)):
 
 ```json
 {
@@ -91,14 +91,22 @@ The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an
 
 ## Story ownership
 
-Creating and editing a story, and `GET /me`, need a [Sign-In with Ethereum](https://eips.ethereum.org/EIPS/eip-4361) (SIWE) signature on each request, sent in two headers:
+Creating and editing a story, and `GET /me`, need a session from [Sign-In with Ethereum](https://eips.ethereum.org/EIPS/eip-4361) (SIWE):
 
-- `x-siwe-message`: the SIWE message, percent-encoded (`encodeURIComponent`), whose statement is `Authorize <METHOD> <path>` for this exact request, such as `Authorize POST /stories` or `Authorize POST /stories/edit`
-- `x-siwe-signature`: the signature of that message
+1. `GET /auth/nonce` returns `{ "nonce": "..." }`, valid for `SIWE_MAX_AGE_SECONDS` (default `300`).
+2. The wallet signs a SIWE message with that nonce and the statement `Sign in to Avventura`.
+3. `POST /auth/siwe` with `{ "message": "...", "signature": "..." }`, the message sent as is in the JSON body, returns `{ "token": "...", "address": "0x...", "expiresAt": "..." }`.
+4. Each guarded request sends `Authorization: Bearer <token>`. `POST /auth/logout` with the same header ends the session and returns 204.
 
-The message must be on chain `SIWE_CHAIN_ID` (default `1`), have an `expirationTime` at most `SIWE_MAX_AGE_SECONDS` (default `300`) after its `issuedAt`, and use a nonce that hasn't been seen before. When `SIWE_ALLOWED_DOMAINS` is set (comma-separated, such as `avventura.fun,localhost:3001`), its domain must be one of them. Anything else returns 401.
+```bash
+curl localhost:3000/me -H 'Authorization: Bearer <token>'
+```
 
-`POST /stories` stores the signer's lowercased address as the story's `ownerAddress` in `stories/stories.json`. `POST /stories/edit` returns 403 unless the signer is that address, and ignores updates to `ownerAddress`, `credits`, `sessions`, `requests` and `created_at`. A story without `ownerAddress`, such as one created before this check, can't be edited until the key is set by hand. On startup, a `creatorAddress` key left by an earlier version is renamed to `ownerAddress`.
+The message must be on chain `SIWE_CHAIN_ID` (default `1`), have an `expirationTime` at most `SIWE_MAX_AGE_SECONDS` after its `issuedAt`, and use a nonce from `GET /auth/nonce` that hasn't expired or been used. When `SIWE_ALLOWED_DOMAINS` is set (comma-separated, such as `avventura.fun,localhost:3001`), its domain must be one of them. Anything else returns 401.
+
+Nonces and sessions are stored in SQLite, next to the balances, so they survive a restart. Only the SHA-256 hash of each token is stored. A session lasts `SESSION_TTL_SECONDS` (default `86400`, one day); an expired or unknown token returns 401.
+
+`POST /stories` stores the session's lowercased address as the story's `ownerAddress` in `stories/stories.json`. `POST /stories/edit` returns 403 unless the session's address is that address, and ignores updates to `ownerAddress`, `credits`, `sessions`, `requests` and `created_at`. A story without `ownerAddress`, such as one created before this check, can't be edited until the key is set by hand. On startup, a `creatorAddress` key left by an earlier version is renamed to `ownerAddress`.
 
 ## Pricing
 

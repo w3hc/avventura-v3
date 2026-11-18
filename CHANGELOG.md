@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `GET /auth/nonce`, `POST /auth/siwe` and `POST /auth/logout`: sign in once with a SIWE message whose statement is `Sign in to Avventura` and a single-use nonce from the API, and get a bearer token for `SESSION_TTL_SECONDS` (default one day) ([#47](https://github.com/w3hc/avventura-v3/issues/47)).
+- Nonces and sessions are stored in SQLite in `siwe_nonces` and `sessions`, with only the SHA-256 hash of each token, and survive a restart ([#47](https://github.com/w3hc/avventura-v3/issues/47)).
+- `.env.template` lists `SESSION_TTL_SECONDS` ([#47](https://github.com/w3hc/avventura-v3/issues/47)).
 - `GET /me` returns the signer's address, balance and owned stories, each with its LLM spend in euros (`spent`), behind a SIWE signature on the request ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
 - `POST /credits` tops up an address's balance, protected by `CREDITS_PASSWORD` ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
 - `POST /stories` returns 402 Payment Required without calling the AI when the creator's balance is 0 or below ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
@@ -35,6 +38,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `POST /stories`, `POST /stories/edit` and `GET /me` take `Authorization: Bearer <token>` from `POST /auth/siwe` instead of a SIWE signature per request: the `x-siwe-message` and `x-siwe-signature` headers and `SiweAuthGuard` are removed ([#47](https://github.com/w3hc/avventura-v3/issues/47)).
 - A story's owner is stored as `ownerAddress` instead of `creatorAddress`; on startup, a `creatorAddress` key in `stories/stories.json` is renamed, and the file is only written when something changed ([#52](https://github.com/w3hc/avventura-v3/issues/52)).
 - `DEFAULT_OWNER_ADDRESS` replaces `OWNER_ADDRESS` as the owner of stories without an `ownerAddress` ([#52](https://github.com/w3hc/avventura-v3/issues/52)).
 - Errors, Swagger descriptions and logs say "owner" instead of "creator", such as 403 "Only the story owner can edit it" ([#52](https://github.com/w3hc/avventura-v3/issues/52)).

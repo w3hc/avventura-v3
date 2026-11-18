@@ -10,8 +10,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiBody,
-  ApiHeader,
   ApiOperation,
   ApiProperty,
   ApiResponse,
@@ -40,22 +40,8 @@ import {
   TEXT_LENGTHS,
   TextLength,
 } from './app.service';
-import { SiweAuthGuard } from './guards/siwe-auth.guard';
-import { SiweAddress } from './guards/siwe-address.decorator';
-
-const SIWE_HEADERS = [
-  {
-    name: 'x-siwe-message',
-    description:
-      'Percent-encoded EIP-4361 SIWE message whose statement is "Authorize <METHOD> <path>" for this exact request',
-    required: true,
-  },
-  {
-    name: 'x-siwe-signature',
-    description: 'Signature over the x-siwe-message value',
-    required: true,
-  },
-];
+import { SessionGuard } from './auth/session.guard';
+import { SessionAddress } from './auth/session-address.decorator';
 
 class PlayerDto implements Partial<Player> {
   @ApiProperty({
@@ -255,12 +241,11 @@ export class AppController {
 
   @Post('stories')
   @HttpCode(HttpStatus.CREATED)
-  @UseGuards(SiweAuthGuard)
+  @UseGuards(SessionGuard)
+  @ApiBearerAuth()
   @ApiOperation({
-    summary: 'Create a new story using AI, owned by the SIWE signer',
+    summary: 'Create a new story using AI, owned by the signed-in address',
   })
-  @ApiHeader(SIWE_HEADERS[0])
-  @ApiHeader(SIWE_HEADERS[1])
   @ApiBody({ type: CreateStoryDto })
   @ApiResponse({
     status: 201,
@@ -269,26 +254,26 @@ export class AppController {
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
   @ApiResponse({
     status: 401,
-    description: 'Invalid or missing SIWE signature',
+    description: 'Invalid, expired or missing session token',
   })
   @ApiResponse({ status: 402, description: 'The owner is out of credits' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })
   async createStory(
     @Body() body: CreateStoryDto,
-    @SiweAddress() ownerAddress: string,
+    @SessionAddress() ownerAddress: string,
   ): Promise<StoryData> {
     this.logger.log('POST /stories endpoint called');
     return this.appService.createStory(body.prompt, ownerAddress);
   }
 
   @Get('me')
-  @UseGuards(SiweAuthGuard)
+  @UseGuards(SessionGuard)
+  @ApiBearerAuth()
   @ApiOperation({
-    summary: "The signer's address, balance (EUR) and stories with their spend",
+    summary:
+      'The signed-in address, its balance (EUR) and stories with their spend',
   })
-  @ApiHeader(SIWE_HEADERS[0])
-  @ApiHeader(SIWE_HEADERS[1])
   @ApiResponse({
     status: 200,
     description:
@@ -296,22 +281,21 @@ export class AppController {
   })
   @ApiResponse({
     status: 401,
-    description: 'Invalid or missing SIWE signature',
+    description: 'Invalid, expired or missing session token',
   })
   @ApiResponse({ status: 500, description: 'Internal server error' })
-  getMe(@SiweAddress() address: string): Me {
+  getMe(@SessionAddress() address: string): Me {
     this.logger.log('GET /me endpoint called');
     return this.appService.getMe(address);
   }
 
   @Post('stories/edit')
   @HttpCode(HttpStatus.OK)
-  @UseGuards(SiweAuthGuard)
+  @UseGuards(SessionGuard)
+  @ApiBearerAuth()
   @ApiOperation({
-    summary: "Edit an existing story, signed by the story's owner",
+    summary: "Edit an existing story, signed in as the story's owner",
   })
-  @ApiHeader(SIWE_HEADERS[0])
-  @ApiHeader(SIWE_HEADERS[1])
   @ApiBody({ type: EditStoryDto })
   @ApiResponse({
     status: 200,
@@ -320,17 +304,17 @@ export class AppController {
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
   @ApiResponse({
     status: 401,
-    description: 'Invalid or missing SIWE signature',
+    description: 'Invalid, expired or missing session token',
   })
   @ApiResponse({
     status: 403,
-    description: "Signer is not the story's ownerAddress",
+    description: "Signed-in address is not the story's ownerAddress",
   })
   @ApiResponse({ status: 404, description: 'Story not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   editStory(
     @Body() body: EditStoryDto,
-    @SiweAddress() signerAddress: string,
+    @SessionAddress() signerAddress: string,
   ): Promise<StoryData> {
     this.logger.log('POST /stories/edit endpoint called');
     return Promise.resolve(

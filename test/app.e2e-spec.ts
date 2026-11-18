@@ -6,30 +6,11 @@ import { AppModule } from './../src/app.module';
 import { AppService } from './../src/app.service';
 import * as modelsData from './../models-infomaniak.json';
 import { Wallet } from 'ethers';
-import { createSiweMessage, generateSiweNonce } from 'w3pk';
+import { createSiweMessage } from 'w3pk';
 
 process.env.DATABASE_PATH = ':memory:';
 
 const wallet = Wallet.createRandom();
-
-async function siweHeaders(statement: string): Promise<Record<string, string>> {
-  const now = Date.now();
-  const message = createSiweMessage({
-    domain: 'avventura.fun',
-    address: wallet.address,
-    statement,
-    uri: 'https://avventura.fun/edit',
-    version: '1',
-    chainId: 1,
-    nonce: generateSiweNonce(),
-    issuedAt: new Date(now).toISOString(),
-    expirationTime: new Date(now + 5 * 60 * 1000).toISOString(),
-  });
-  return {
-    'x-siwe-message': encodeURIComponent(message),
-    'x-siwe-signature': await wallet.signMessage(message),
-  };
-}
 
 describe('AppController (e2e)', () => {
   let app: INestApplication<App>;
@@ -141,6 +122,37 @@ describe('AppController (e2e)', () => {
   afterEach(async () => {
     await app.close();
   });
+
+  async function signIn(
+    statement = 'Sign in to Avventura',
+  ): Promise<request.Response> {
+    const {
+      body: { nonce },
+    } = (await request(app.getHttpServer()).get('/auth/nonce').expect(200)) as {
+      body: { nonce: string };
+    };
+    const now = Date.now();
+    const message = createSiweMessage({
+      domain: 'avventura.fun',
+      address: wallet.address,
+      statement,
+      uri: 'https://avventura.fun',
+      version: '1',
+      chainId: 1,
+      nonce,
+      issuedAt: new Date(now).toISOString(),
+      expirationTime: new Date(now + 5 * 60 * 1000).toISOString(),
+    });
+    return request(app.getHttpServer())
+      .post('/auth/siwe')
+      .send({ message, signature: await wallet.signMessage(message) });
+  }
+
+  async function bearer(): Promise<Record<string, string>> {
+    const res = await signIn();
+    expect(res.status).toBe(200);
+    return { Authorization: `Bearer ${(res.body as { token: string }).token}` };
+  }
 
   it('/models (GET)', () => {
     return request(app.getHttpServer())
@@ -264,7 +276,31 @@ describe('AppController (e2e)', () => {
       });
   });
 
-  it('/stories (POST) - rejects a request without SIWE headers', async () => {
+  it('/auth/siwe (POST) - returns a session for the signer', async () => {
+    const res = await signIn();
+    expect(res.status).toBe(200);
+    const body = res.body as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(['address', 'expiresAt', 'token']);
+    expect(body.address).toBe(wallet.address.toLowerCase());
+    expect(typeof body.token).toBe('string');
+    expect(Date.parse(body.expiresAt as string)).toBeGreaterThan(Date.now());
+  });
+
+  it('/auth/siwe (POST) - rejects another statement', async () => {
+    const res = await signIn('Authorize POST /stories');
+    expect(res.status).toBe(401);
+  });
+
+  it('/auth/logout (POST) - ends the session', async () => {
+    const headers = await bearer();
+    await request(app.getHttpServer())
+      .post('/auth/logout')
+      .set(headers)
+      .expect(204);
+    await request(app.getHttpServer()).get('/me').set(headers).expect(401);
+  });
+
+  it('/stories (POST) - rejects a request without a bearer token', async () => {
     await request(app.getHttpServer())
       .post('/stories')
       .send({ prompt: 'A story' })
@@ -272,10 +308,20 @@ describe('AppController (e2e)', () => {
     expect(createStory).not.toHaveBeenCalled();
   });
 
-  it('/stories (POST) - creates the story for the signer', async () => {
+  it('/stories (POST) - rejects an unknown bearer token', async () => {
     await request(app.getHttpServer())
       .post('/stories')
-      .set(await siweHeaders('Authorize POST /stories'))
+      .set({ Authorization: 'Bearer nope' })
+      .send({ prompt: 'A story' })
+      .expect(401);
+    expect(createStory).not.toHaveBeenCalled();
+  });
+
+  it('/stories (POST) - creates the story for the signed-in address', async () => {
+    const headers = await bearer();
+    await request(app.getHttpServer())
+      .post('/stories')
+      .set(headers)
       .send({ prompt: 'A story' })
       .expect(201);
     expect(createStory).toHaveBeenCalledWith(
@@ -284,19 +330,19 @@ describe('AppController (e2e)', () => {
     );
   });
 
-  it('/stories/edit (POST) - rejects a signature for another route', async () => {
+  it('/stories/edit (POST) - rejects a request without a bearer token', async () => {
     await request(app.getHttpServer())
       .post('/stories/edit')
-      .set(await siweHeaders('Authorize POST /stories'))
       .send({ slug: 'new-story', updates: { title: 'x' } })
       .expect(401);
     expect(editStory).not.toHaveBeenCalled();
   });
 
-  it('/stories/edit (POST) - passes the signer to the service', async () => {
+  it('/stories/edit (POST) - passes the signed-in address to the service', async () => {
+    const headers = await bearer();
     await request(app.getHttpServer())
       .post('/stories/edit')
-      .set(await siweHeaders('Authorize POST /stories/edit'))
+      .set(headers)
       .send({ slug: 'new-story', updates: { title: 'x' } })
       .expect(200);
     expect(editStory).toHaveBeenCalledWith(
@@ -306,23 +352,16 @@ describe('AppController (e2e)', () => {
     );
   });
 
-  it('/me (GET) - rejects a request without SIWE headers', async () => {
+  it('/me (GET) - rejects a request without a bearer token', async () => {
     await request(app.getHttpServer()).get('/me').expect(401);
     expect(getMe).not.toHaveBeenCalled();
   });
 
-  it('/me (GET) - rejects a signature for another route', async () => {
+  it('/me (GET) - returns the signed-in account', async () => {
+    const headers = await bearer();
     await request(app.getHttpServer())
       .get('/me')
-      .set(await siweHeaders('Authorize POST /stories'))
-      .expect(401);
-    expect(getMe).not.toHaveBeenCalled();
-  });
-
-  it('/me (GET) - returns the signer account', async () => {
-    await request(app.getHttpServer())
-      .get('/me')
-      .set(await siweHeaders('Authorize GET /me'))
+      .set(headers)
       .expect(200, { balance: 100, stories: [] });
     expect(getMe).toHaveBeenCalledWith(wallet.address.toLowerCase());
   });

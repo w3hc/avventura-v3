@@ -22,6 +22,8 @@ interface Statements {
   balance: Database.Statement<[string], { amount: number }>;
   apply: (movement: Movement) => number;
   open: (owner: string, amount: number, story?: string) => number;
+  moveStoryBalance: (slug: string, owner: string, initial: number) => number;
+  spent: Database.Statement<[string], { story: string; amount: number }>;
 }
 
 @Injectable()
@@ -86,11 +88,40 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
       },
     );
 
+    const moveStoryBalance = db.transaction(
+      (slug: string, owner: string, initial: number): number => {
+        if (createBalance.run(slug).changes === 1) {
+          move({
+            owner: slug,
+            kind: 'adjustment',
+            amount: initial,
+            story: slug,
+          });
+        }
+        const amount = fromMicro(balance.get(slug)!.amount);
+        if (amount === 0) {
+          return 0;
+        }
+        createBalance.run(owner);
+        move({ owner: slug, kind: 'adjustment', amount: -amount, story: slug });
+        move({ owner, kind: 'adjustment', amount, story: slug });
+        return amount;
+      },
+    );
+    const spent = db.prepare<[string], { story: string; amount: number }>(
+      `SELECT story, -SUM(amount) AS amount FROM ledger
+       WHERE kind = 'llm' AND story IN (SELECT value FROM json_each(?))
+       GROUP BY story`,
+    );
+
     this.statements = {
       db,
       balance,
       apply: (movement) => apply.immediate(movement),
       open: (owner, amount, story) => open.immediate(owner, amount, story),
+      moveStoryBalance: (slug, owner, initial) =>
+        moveStoryBalance.immediate(slug, owner, initial),
+      spent,
     };
     return this.statements;
   }
@@ -108,7 +139,7 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
 
   charge(
     owner: string,
-    entry: { story: string; game: string; llmCost: number; amount: number },
+    entry: { story?: string; game?: string; llmCost: number; amount: number },
   ): number {
     return this.prepare().apply({
       owner,
@@ -120,5 +151,20 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
 
   topUp(owner: string, amount: number, story?: string): number {
     return this.prepare().apply({ owner, kind: 'topup', amount, story });
+  }
+
+  // Moves a story's balance to its owner, opening it at `initial` EUR if the
+  // story has none yet. Returns the amount moved, 0 once already moved.
+  moveStoryBalance(slug: string, owner: string, initial: number): number {
+    return this.prepare().moveStoryBalance(slug, owner, initial);
+  }
+
+  // Total LLM debits per story in EUR, across every owner it has had
+  spentByStory(slugs: string[]): Record<string, number> {
+    const spent = Object.fromEntries(slugs.map((slug) => [slug, 0]));
+    for (const row of this.prepare().spent.all(JSON.stringify(slugs))) {
+      spent[row.story] = fromMicro(row.amount);
+    }
+    return spent;
   }
 }

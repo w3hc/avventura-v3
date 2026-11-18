@@ -171,10 +171,14 @@ Settings and saved cards are stored in the `auto_topups` table.
 With the [Stripe CLI](https://docs.stripe.com/stripe-cli), logged in to the test account:
 
 ```bash
-stripe listen --forward-to localhost:3000/billing/webhook
+stripe listen \
+  --events checkout.session.completed,payment_intent.succeeded,payment_intent.payment_failed \
+  --forward-to localhost:3000/billing/webhook
 ```
 
-It prints a signing secret (`whsec_...`): set it as `STRIPE_WEBHOOK_SECRET` and start the API with `pnpm start:dev`. Then start a checkout with `POST /billing/checkout`, open the URL and pay with the test card `4242 4242 4242 4242`, any future expiry date and any CVC. The creator's balance in `GET /me` grows by the net amount.
+It prints a signing secret (`whsec_...`): set it as `STRIPE_WEBHOOK_SECRET` and start the API with `pnpm start:dev`. Then start a checkout with `POST /billing/checkout`, open the URL and pay with the test card `4242 4242 4242 4242`, any future expiry date and any CVC. The creator's balance in `GET /me` grows by the net amount, and the API logs `POST /billing/webhook`.
+
+Keep `stripe listen` running: an event sent while it is stopped is not forwarded later. Resend it with `stripe events resend <evt_id>` once it runs again; `stripe events list --type checkout.session.completed` lists the recent ones. An event already credited is acknowledged without crediting twice.
 
 `stripe trigger checkout.session.completed` sends a signed event too, but its session has no `topup` metadata, so it only checks that the signature is accepted.
 

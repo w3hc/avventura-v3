@@ -91,3 +91,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `POST /stories/credits`, replaced by `POST /credits` ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
 - `pnpm credits:migrate` and `scripts/migrate-credits.mts`: the startup migration imports a story's `credits` key when it has no balance yet ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
 - `pnpm credits:init` and `scripts/init-credits.mts`, replaced by `pnpm credits:migrate` ([#41](https://github.com/w3hc/avventura-v3/issues/41)).
+
+### Fixed
+
+- The README's `stripe listen` command passes `--events checkout.session.completed,payment_intent.succeeded,payment_intent.payment_failed`, which current Stripe CLI versions require, and explains how to resend an event missed while it was stopped ([#60](https://github.com/w3hc/avventura-v3/issues/60)).

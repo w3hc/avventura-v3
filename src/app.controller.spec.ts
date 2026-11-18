@@ -1271,9 +1271,10 @@ describe('AppController', () => {
         address: OWNER,
         balance: 14.025,
         stories: [
-          { slug: 'funded', title: undefined, spent: 0.975 },
-          { slug: 'second', title: undefined, spent: 0 },
+          { slug: 'funded', title: undefined, spent: 0.975, free: false },
+          { slug: 'second', title: undefined, spent: 0, free: false },
         ],
+        freeStory: null,
         autoTopup: null,
       });
     });
@@ -1321,7 +1322,7 @@ describe('AppController', () => {
 
     it('should list stories without an owner under DEFAULT_OWNER_ADDRESS', () => {
       expect(appController.getMe(DEFAULT_OWNER).stories).toEqual([
-        { slug: 'legacy', title: undefined, spent: 0 },
+        { slug: 'legacy', title: undefined, spent: 0, free: false },
       ]);
     });
 
@@ -1330,6 +1331,7 @@ describe('AppController', () => {
         address: STRANGER,
         balance: 0,
         stories: [],
+        freeStory: null,
         autoTopup: null,
       });
       expect(balance(STRANGER)).toBeNull();
@@ -1805,6 +1807,21 @@ describe('AppController', () => {
         expect(checkAutoTopup).not.toHaveBeenCalled();
       },
     );
+
+    it('reports the free story and its allowance in GET /me', async () => {
+      await createFree();
+      credits().topUp(STRANGER, 1);
+      await create('second');
+
+      expect(appController.getMe(STRANGER)).toMatchObject({
+        balance: 5.87,
+        stories: [
+          { slug: 'first', title: 'first', spent: 0.13, free: true },
+          { slug: 'second', title: 'second', spent: 0.13, free: false },
+        ],
+        freeStory: { slug: 'first', spent: 0.13, limit: 2 },
+      });
+    });
 
     it('reads the limit from FREE_STORY_LIMIT', async () => {
       await createFree();

@@ -134,7 +134,8 @@ export interface StoryData {
 export interface Me {
   address: string;
   balance: number;
-  stories: { slug: string; title: string; spent: number }[];
+  stories: { slug: string; title: string; spent: number; free: boolean }[];
+  freeStory: { slug: string; spent: number; limit: number } | null;
   autoTopup: AutoTopupState | null;
 }
 
@@ -1353,6 +1354,7 @@ ${ENDING_RULE}${playerNameReminder}`;
       stories.map((story) => story.slug),
     );
     const autoTopup = this.creditsService.autoTopup(owner);
+    const freeStory = this.creditsService.freeStory(owner);
     return {
       address: owner,
       balance: this.creditsService.balance(owner) ?? 0,
@@ -1360,7 +1362,16 @@ ${ENDING_RULE}${playerNameReminder}`;
         slug: story.slug,
         title: story.title,
         spent: spent[story.slug],
+        free: story.slug === freeStory,
       })),
+      freeStory:
+        freeStory === null
+          ? null
+          : {
+              slug: freeStory,
+              spent: this.creditsService.freeStorySpent(freeStory),
+              limit: this.freeStoryLimit,
+            },
       autoTopup: autoTopup && autoTopupState(autoTopup),
     };
   }

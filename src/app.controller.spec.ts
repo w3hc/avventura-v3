@@ -14,6 +14,7 @@ import {
   StoryData,
   TextLength,
 } from './app.service';
+import { AuthService } from './auth/auth.service';
 import { CreditsService } from './credits/credits.service';
 import { PricingFile, PricingService } from './pricing/pricing.service';
 import * as modelsData from '../models-infomaniak.json';
@@ -28,7 +29,7 @@ describe('AppController', () => {
   beforeEach(async () => {
     app = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService, PricingService, CreditsService],
+      providers: [AppService, PricingService, CreditsService, AuthService],
     }).compile();
 
     appController = app.get<AppController>(AppController);

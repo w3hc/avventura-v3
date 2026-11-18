@@ -37,6 +37,7 @@ async function bootstrap() {
     .setDescription('The Avventura API documentation')
     .setVersion('1.0')
     .addTag('AI', 'AI-related endpoints')
+    .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('', app, document);

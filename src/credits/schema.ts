@@ -22,6 +22,20 @@ CREATE TABLE IF NOT EXISTS ledger (
 );
 
 CREATE INDEX IF NOT EXISTS ledger_owner ON ledger (owner);
+
+CREATE TABLE IF NOT EXISTS siwe_nonces (
+  nonce TEXT PRIMARY KEY,
+  expires_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  address TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS sessions_address ON sessions (address);
 `;
 
 // Amounts are stored as integer micro-euros

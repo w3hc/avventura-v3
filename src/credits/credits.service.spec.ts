@@ -405,6 +405,25 @@ describe('CreditsService', () => {
       expect(credits.claimAutoTopup('0xb')).not.toBeNull();
     });
 
+    it('claims a pending auto top-up again once it is stale', () => {
+      jest.useFakeTimers({ now: new Date('2026-11-18T10:00:00Z') });
+      try {
+        enable();
+        credits.open('0xa', 1);
+        const claim = credits.claimAutoTopup('0xa')!;
+        jest.setSystemTime(new Date('2026-11-18T10:09:59Z'));
+        expect(credits.claimAutoTopup('0xa')).toBeNull();
+        jest.setSystemTime(new Date('2026-11-18T10:10:01Z'));
+        expect(credits.claimAutoTopup('0xa')).toEqual(claim);
+        expect(credits.claimAutoTopup('0xa')).toBeNull();
+        credits.startAutoTopup(claim.id, 'pi_1');
+        jest.setSystemTime(new Date('2026-11-18T11:00:00Z'));
+        expect(credits.claimAutoTopup('0xa')).toBeNull();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('claims nothing when disabled', () => {
       enable();
       credits.setAutoTopup('0xa', { enabled: false });

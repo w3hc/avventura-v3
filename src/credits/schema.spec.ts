@@ -73,8 +73,9 @@ describe('openDatabase', () => {
   it('allows one pending auto top-up per owner', () => {
     const db = openDatabase(path);
     const insert = db.prepare(
-      `INSERT INTO auto_topup_payments (owner, amount, status, created_at)
-       VALUES (?, 10000000, ?, '2026-01-01')`,
+      `INSERT INTO auto_topup_payments
+         (owner, amount, status, created_at, attempted_at)
+       VALUES (?, 10000000, ?, '2026-01-01', '2026-01-01')`,
     );
     insert.run('0xa', 'pending');
     insert.run('0xa', 'failed');

@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS auto_topup_payments (
   amount INTEGER NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed')),
   payment_intent TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  attempted_at TEXT NOT NULL
 );
 `;
 

@@ -77,6 +77,10 @@ export const autoTopupState = (settings: AutoTopup): AutoTopupState => ({
   pausedReason: settings.pausedReason,
 });
 
+// A pending auto top-up that never reached Stripe (restart, Stripe outage)
+// is charged again after this long, with the same idempotency key
+export const AUTO_TOPUP_RETRY_MS = 10 * 60 * 1000;
+
 // Used until the creator sets their own: add €10 when credits reach €5
 export const DEFAULT_AUTO_TOPUP = { amount: 10, threshold: 5 };
 
@@ -173,11 +177,22 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
          updated_at = excluded.updated_at`,
     );
     const insertAutoTopupPayment = db.prepare<
-      [string, number, string],
-      { id: number }
+      [{ owner: string; amount: number; now: string }],
+      { id: number; amount: number }
     >(
-      `INSERT INTO auto_topup_payments (owner, amount, status, created_at)
-       VALUES (?, ?, 'pending', ?) ON CONFLICT DO NOTHING RETURNING id`,
+      `INSERT INTO auto_topup_payments
+         (owner, amount, status, created_at, attempted_at)
+       VALUES (@owner, @amount, 'pending', @now, @now)
+       ON CONFLICT DO NOTHING RETURNING id, amount`,
+    );
+    const retryAutoTopupPayment = db.prepare<
+      [{ owner: string; now: string; stale: string }],
+      { id: number; amount: number }
+    >(
+      `UPDATE auto_topup_payments SET attempted_at = @now
+       WHERE owner = @owner AND status = 'pending' AND payment_intent IS NULL
+         AND attempted_at < @stale
+       RETURNING id, amount`,
     );
     const startAutoTopup = db.prepare<[string, number]>(
       'UPDATE auto_topup_payments SET payment_intent = ? WHERE id = ?',
@@ -315,30 +330,41 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
         return true;
       },
     );
+    const autoTopupDue = (owner: string): AutoTopupRow | null => {
+      const settings = autoTopup.get(owner);
+      const current = balance.get(owner);
+      return settings?.enabled &&
+        settings.payment_method &&
+        settings.paused_reason === null &&
+        current &&
+        current.amount <= settings.threshold
+        ? settings
+        : null;
+    };
     const claimAutoTopup = db.transaction(
       (owner: string): AutoTopupClaim | null => {
-        const settings = autoTopup.get(owner);
-        const current = balance.get(owner);
-        if (
-          !settings?.enabled ||
-          !settings.payment_method ||
-          settings.paused_reason !== null ||
-          !current ||
-          current.amount > settings.threshold
-        ) {
+        const settings = autoTopupDue(owner);
+        if (!settings) {
           return null;
         }
-        const row = insertAutoTopupPayment.get(
-          owner,
-          settings.amount,
-          new Date().toISOString(),
-        );
+        const now = new Date();
+        const row =
+          insertAutoTopupPayment.get({
+            owner,
+            amount: settings.amount,
+            now: now.toISOString(),
+          }) ??
+          retryAutoTopupPayment.get({
+            owner,
+            now: now.toISOString(),
+            stale: new Date(now.getTime() - AUTO_TOPUP_RETRY_MS).toISOString(),
+          });
         return row
           ? {
               id: row.id,
               owner,
-              amount: fromMicro(settings.amount),
-              paymentMethod: settings.payment_method,
+              amount: fromMicro(row.amount),
+              paymentMethod: settings.payment_method!,
             }
           : null;
       },
@@ -374,7 +400,9 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
         setAutoTopup.immediate(owner, settings),
       saveAutoTopupCard: (owner, paymentMethod, event) =>
         saveAutoTopupCard.immediate(owner, paymentMethod, event),
-      claimAutoTopup: (owner) => claimAutoTopup.immediate(owner),
+      // Checked first without a write lock, since most debits claim nothing
+      claimAutoTopup: (owner) =>
+        autoTopupDue(owner) ? claimAutoTopup.immediate(owner) : null,
       startAutoTopup,
       failAutoTopup: (id, owner, reason) =>
         failAutoTopup.immediate(id, owner, reason),
@@ -458,7 +486,9 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Records a pending auto top-up when the owner's settings are active and
-  // the balance is at or below the threshold, unless one is pending already
+  // the balance is at or below the threshold, unless one is pending already.
+  // A pending one that never reached Stripe is claimed again after
+  // AUTO_TOPUP_RETRY_MS.
   claimAutoTopup(owner: string): AutoTopupClaim | null {
     return this.prepare().claimAutoTopup(owner);
   }

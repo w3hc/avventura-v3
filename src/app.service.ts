@@ -15,6 +15,7 @@ import {
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 import { assertCreditsPassword } from './credits-password';
+import { CreditsService } from './credits/credits.service';
 import { PricingService } from './pricing/pricing.service';
 
 interface Message {
@@ -139,7 +140,10 @@ export class AppService implements OnModuleInit {
   private readonly gamesDir = join(process.cwd(), 'games');
   private readonly costsFilePath = join(process.cwd(), 'costs.json');
 
-  constructor(private readonly pricingService: PricingService) {}
+  constructor(
+    private readonly pricingService: PricingService,
+    private readonly creditsService: CreditsService,
+  ) {}
 
   onModuleInit() {
     if (!existsSync(this.gamesDir)) {
@@ -220,20 +224,13 @@ export class AppService implements OnModuleInit {
     }
   }
 
-  // Adds delta (EUR) to a story's credits, counting a missing key as DEFAULT_CREDITS
-  private updateStoryCredits(slug: string, delta: number): number {
-    const storiesPath = join(process.cwd(), 'stories', 'stories.json');
-    const stories = JSON.parse(
-      readFileSync(storiesPath, 'utf-8'),
-    ) as StoryData[];
-    const story = stories.find((s) => s.slug === slug);
-    if (!story) {
-      throw new HttpException('Story not found', HttpStatus.NOT_FOUND);
-    }
-
-    story.credits = roundEur((story.credits ?? DEFAULT_CREDITS) + delta);
-    writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
-    return story.credits;
+  // A story without a balance yet opens one from its legacy credits key
+  private storyBalance(story: StoryData): number {
+    return this.creditsService.open(
+      story.slug,
+      story.credits ?? DEFAULT_CREDITS,
+      story.slug,
+    );
   }
 
   private assertCredits(slug: string, credits: number): void {
@@ -246,9 +243,14 @@ export class AppService implements OnModuleInit {
     }
   }
 
-  private chargeStory(slug: string, cost: number): void {
+  private chargeStory(slug: string, gameId: string, cost: number): void {
     try {
-      const credits = this.updateStoryCredits(slug, -roundEur(cost));
+      const credits = this.creditsService.charge(slug, {
+        story: slug,
+        game: gameId,
+        llmCost: roundEur(cost),
+        amount: roundEur(cost),
+      });
       this.logger.debug(
         `Charged €${roundEur(cost)} to story ${slug}, credits left: €${credits}`,
       );
@@ -330,7 +332,7 @@ export class AppService implements OnModuleInit {
 
     // Load story content from stories.json
     let storyContent: string;
-    let storyCredits: number;
+    let storyData: StoryData;
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
       const storiesData = JSON.parse(
@@ -343,7 +345,7 @@ export class AppService implements OnModuleInit {
       }
 
       storyContent = storyObj.content;
-      storyCredits = storyObj.credits ?? DEFAULT_CREDITS;
+      storyData = storyObj;
       this.logger.log(`Story content loaded from ${story}`);
     } catch (error) {
       this.logger.error(
@@ -354,7 +356,7 @@ export class AppService implements OnModuleInit {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-    this.assertCredits(story, storyCredits);
+    this.assertCredits(story, this.storyBalance(storyData));
 
     // Use prompt caching for static story instructions (cache_control)
     const cachedStoryInstructions = `# INSTRUCTIONS FOR THE MULTILINGUAL ADVENTURE
@@ -488,7 +490,7 @@ ${ENDING_RULE}${playerNameReminder}`;
 
       this.writeGame(newGame);
       this.writeCost(newGame.id, totalCost);
-      this.chargeStory(story, totalCost);
+      this.chargeStory(story, newGame.id, totalCost);
 
       this.logger.log(`Created new game with ID: ${newGame.id}`);
       return newGame;
@@ -1066,7 +1068,6 @@ ${ENDING_RULE}${playerNameReminder}`;
         is_active: true,
         sessions: 0,
         requests: 0,
-        credits: DEFAULT_CREDITS,
         creatorAddress,
       };
 
@@ -1088,6 +1089,11 @@ ${ENDING_RULE}${playerNameReminder}`;
           HttpStatus.INTERNAL_SERVER_ERROR,
         );
       }
+      this.creditsService.open(
+        completeStory.slug,
+        DEFAULT_CREDITS,
+        completeStory.slug,
+      );
 
       return completeStory;
     } catch (error) {
@@ -1187,8 +1193,10 @@ ${ENDING_RULE}${playerNameReminder}`;
   ): { added: number; credits: number } {
     assertCreditsPassword(password, `credits top-up for story ${slug}`);
 
+    const story = this.getStory(slug);
+    this.storyBalance(story);
     const added = roundEur(amount);
-    const credits = this.updateStoryCredits(slug, added);
+    const credits = this.creditsService.topUp(slug, added, slug);
     this.logger.log(
       `Added €${added} to story ${slug}, credits now: €${credits}`,
     );
@@ -1263,7 +1271,7 @@ ${ENDING_RULE}${playerNameReminder}`;
 
     // Load story content from stories.json
     let storyContent: string;
-    let storyCredits: number;
+    let storyData: StoryData;
     try {
       const storiesPath = join(process.cwd(), 'stories', 'stories.json');
       const storiesData = JSON.parse(
@@ -1276,7 +1284,7 @@ ${ENDING_RULE}${playerNameReminder}`;
       }
 
       storyContent = storyObj.content;
-      storyCredits = storyObj.credits ?? DEFAULT_CREDITS;
+      storyData = storyObj;
       this.logger.log(`Story content loaded from ${game.story}`);
     } catch (error) {
       this.logger.error(
@@ -1287,7 +1295,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-    this.assertCredits(game.story, storyCredits);
+    this.assertCredits(game.story, this.storyBalance(storyData));
 
     // Use prompt caching for static story instructions (cache_control)
     const cachedStoryInstructions = `# STORY INSTRUCTIONS
@@ -1395,7 +1403,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         totalCost,
       );
       this.writeCost(gameId, totalCost);
-      this.chargeStory(game.story, totalCost);
+      this.chargeStory(game.story, gameId, totalCost);
 
       return {
         previously: aiResponse.previously,

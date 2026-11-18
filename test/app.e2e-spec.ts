@@ -8,6 +8,8 @@ import * as modelsData from './../models-infomaniak.json';
 import { Wallet } from 'ethers';
 import { createSiweMessage, generateSiweNonce } from 'w3pk';
 
+process.env.DATABASE_PATH = ':memory:';
+
 const wallet = Wallet.createRandom();
 
 async function siweHeaders(statement: string): Promise<Record<string, string>> {

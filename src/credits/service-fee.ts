@@ -1,6 +1,5 @@
 export const DEFAULT_SERVICE_FEE_RATE = 0.3;
 
-// Reads SERVICE_FEE_RATE, falling back to the default when unset or invalid
 export function serviceFeeRate(
   value: string | undefined,
   onInvalid: (message: string) => void,

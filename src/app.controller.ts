@@ -25,6 +25,7 @@ import {
   IsArray,
   IsIn,
   IsPositive,
+  IsEthereumAddress,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -184,12 +185,11 @@ class EditStoryDto {
 
 export class AddCreditsDto {
   @ApiProperty({
-    description: 'The slug of the story to top up',
-    example: 'montpellier',
+    description: 'The creator address to top up',
+    example: '0x1111111111111111111111111111111111111111',
   })
-  @IsString()
-  @IsNotEmpty()
-  slug: string;
+  @IsEthereumAddress()
+  address: string;
 
   @ApiProperty({
     description: 'The amount to add, in EUR',
@@ -314,10 +314,10 @@ export class AppController {
     );
   }
 
-  @Post('stories/credits')
+  @Post('credits')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Add credits (EUR) to a story',
+    summary: "Add credits (EUR) to a creator's balance",
   })
   @ApiBody({ type: AddCreditsDto })
   @ApiResponse({
@@ -326,11 +326,10 @@ export class AppController {
   })
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
   @ApiResponse({ status: 401, description: 'Invalid password' })
-  @ApiResponse({ status: 404, description: 'Story not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   addCredits(@Body() body: AddCreditsDto): { added: number; credits: number } {
-    this.logger.log('POST /stories/credits endpoint called');
-    return this.appService.addCredits(body.slug, body.amount, body.password);
+    this.logger.log('POST /credits endpoint called');
+    return this.appService.addCredits(body.address, body.amount, body.password);
   }
 
   @Post('start')
@@ -343,7 +342,10 @@ export class AppController {
     status: 201,
     description: 'New game created successfully',
   })
-  @ApiResponse({ status: 402, description: 'Story is out of credits' })
+  @ApiResponse({
+    status: 402,
+    description: "The story's creator is out of credits",
+  })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   async start(@Body() body?: StartDto): Promise<Game> {
     this.logger.log('POST /start endpoint called');
@@ -386,7 +388,10 @@ export class AppController {
     description: 'Updated game state with new story progression',
   })
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
-  @ApiResponse({ status: 402, description: 'Story is out of credits' })
+  @ApiResponse({
+    status: 402,
+    description: "The story's creator is out of credits",
+  })
   @ApiResponse({ status: 404, description: 'Game not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })

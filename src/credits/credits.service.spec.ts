@@ -193,6 +193,14 @@ describe('CreditsService', () => {
     ]);
   });
 
+  it('opens the owner balance even when the story balance is 0', () => {
+    credits.open('story', 0, 'story');
+
+    expect(credits.moveStoryBalance('story', '0xabc', 100)).toBe(0);
+    expect(credits.balance('0xabc')).toBe(0);
+    expect(ledger('0xabc')).toEqual([]);
+  });
+
   it('moves a negative story balance too', () => {
     credits.open('story', 1, 'story');
     credits.charge('story', { story: 'story', llmCost: 3, amount: 3 });

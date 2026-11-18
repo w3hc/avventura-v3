@@ -98,11 +98,11 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
             story: slug,
           });
         }
+        createBalance.run(owner);
         const amount = fromMicro(balance.get(slug)!.amount);
         if (amount === 0) {
           return 0;
         }
-        createBalance.run(owner);
         move({ owner: slug, kind: 'adjustment', amount: -amount, story: slug });
         move({ owner, kind: 'adjustment', amount, story: slug });
         return amount;

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `PUT /billing/auto-topup` saves, changes or disables a creator's automatic top-up: an `amount` from €5 to €500 charged when a debit leaves the balance at or below `threshold` (€0 or more), `10` and `5` until set. Saving the settings resumes a paused auto top-up ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
+- `POST /billing/auto-topup/setup` returns a Stripe Checkout page in `setup` mode that saves a card, back to `BILLING_RETURN_URL` with `?card=saved` or `?card=cancel`. Its `checkout.session.completed` event stores the card and resumes a paused auto top-up ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
+- After each debit, on each 402 and when the settings or card change, an active auto top-up below its threshold records one pending payment per owner in `auto_topup_payments` and charges the saved card off-session in the background, with the idempotency key `auto-topup-<id>`, so a burst of debits charges once ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
+- `payment_intent.succeeded` credits an auto top-up's net amount, once per PaymentIntent. A declined card, `authentication_required`, `requires_action` or `payment_intent.payment_failed` pauses auto top-up; a payment that never reached Stripe is retried after 10 minutes with the same idempotency key ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
+- `GET /me` returns `autoTopup`: `{ enabled, amount, threshold, hasCard, paused, pausedReason }`, or `null` when never set ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
+- `auto_topups` and `auto_topup_payments` tables, created on startup ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
+- The README explains auto top-up, how to test it with Stripe test cards, and that the production webhook needs the `payment_intent` events ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
+
 - `POST /billing/checkout` starts a [Stripe Checkout](https://docs.stripe.com/payments/checkout) card payment in EUR for €5 to €500, behind a session, and returns its URL. The session and its PaymentIntent carry `{ kind: 'topup', owner }` metadata, and a paid invoice is created with the footer "TVA non applicable, art. 293 B du CGI" ([#44](https://github.com/w3hc/avventura-v3/issues/44)).
 - `POST /billing/webhook` verifies the `Stripe-Signature` header against the raw body (400 when missing or wrong) and, on a paid `topup` `checkout.session.completed`, credits the payment's net, the amount minus the Stripe fee from its balance transaction. A missing balance opens at `100` first ([#44](https://github.com/w3hc/avventura-v3/issues/44)).
 - Each Stripe event is processed once: its id is stored in `stripe_events` in the same transaction as the credit, and a PaymentIntent is credited at most once ([#44](https://github.com/w3hc/avventura-v3/issues/44)).

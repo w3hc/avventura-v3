@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `POST /billing/checkout` starts a [Stripe Checkout](https://docs.stripe.com/payments/checkout) card payment in EUR for €5 to €500, behind a session, and returns its URL. The session and its PaymentIntent carry `{ kind: 'topup', owner }` metadata, and a paid invoice is created with the footer "TVA non applicable, art. 293 B du CGI" ([#44](https://github.com/w3hc/avventura-v3/issues/44)).
+- `POST /billing/webhook` verifies the `Stripe-Signature` header against the raw body (400 when missing or wrong) and, on a paid `topup` `checkout.session.completed`, credits the payment's net, the amount minus the Stripe fee from its balance transaction. A missing balance opens at `100` first ([#44](https://github.com/w3hc/avventura-v3/issues/44)).
+- Each Stripe event is processed once: its id is stored in `stripe_events` in the same transaction as the credit, and a PaymentIntent is credited at most once ([#44](https://github.com/w3hc/avventura-v3/issues/44)).
+- One Stripe Customer per address, stored in `stripe_customers` and replaced when Stripe no longer has it ([#44](https://github.com/w3hc/avventura-v3/issues/44)).
+- `topup` ledger rows from Stripe store the `gross` paid, the `fee` and the `stripe_payment_intent`; existing databases gain these columns on startup ([#44](https://github.com/w3hc/avventura-v3/issues/44)).
+- `.env.template` lists `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `BILLING_RETURN_URL` (default `https://avventura.fun/dashboard`); without the first two, billing routes return 503 and the rest of the API works ([#44](https://github.com/w3hc/avventura-v3/issues/44)).
+- The README explains how to test billing with the Stripe CLI and set up the production webhook ([#44](https://github.com/w3hc/avventura-v3/issues/44)).
+
 - Each AI call is charged its price, `llmCost × (1 + SERVICE_FEE_RATE)` with `SERVICE_FEE_RATE` defaulting to `0.30`. `llm` ledger rows store the price in `amount` and the LLM cost in `llm_cost`, and game `spent`, the 402 check and `GET /me` `spent` use the price. A negative or non-numeric rate falls back to `0.30` with a warning ([#43](https://github.com/w3hc/avventura-v3/issues/43)).
 - `.env.template` lists `SERVICE_FEE_RATE` ([#43](https://github.com/w3hc/avventura-v3/issues/43)).
 

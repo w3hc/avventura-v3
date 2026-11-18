@@ -55,6 +55,9 @@ export interface AutoTopupClaim {
   paymentMethod: string;
 }
 
+// The balance a new owner opens at
+export const DEFAULT_CREDITS = 100;
+
 // What GET /me and PUT /billing/auto-topup report, amounts in EUR
 export interface AutoTopupState {
   enabled: boolean;

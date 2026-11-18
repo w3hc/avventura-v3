@@ -272,12 +272,12 @@ export class AppController {
   @ApiBearerAuth()
   @ApiOperation({
     summary:
-      'The signed-in address, its balance (EUR) and stories with their spend',
+      'The signed-in address, its balance (EUR), stories with their spend and auto top-up',
   })
   @ApiResponse({
     status: 200,
     description:
-      'Address, balance and owned stories, each with its LLM spend in EUR',
+      'Address, balance, owned stories, each with its LLM spend in EUR, and `autoTopup`: `{ enabled, amount, threshold, hasCard, paused, pausedReason }` (EUR), or null if never set',
   })
   @ApiResponse({
     status: 401,

@@ -15,6 +15,8 @@ import {
   TextLength,
 } from './app.service';
 import { AuthService } from './auth/auth.service';
+import { BillingService } from './billing/billing.service';
+import { STRIPE_CLIENT } from './billing/stripe.client';
 import { CreditsService } from './credits/credits.service';
 import { PricingFile, PricingService } from './pricing/pricing.service';
 import * as modelsData from '../models-infomaniak.json';
@@ -30,7 +32,14 @@ describe('AppController', () => {
     process.env.SERVICE_FEE_RATE = '0.30';
     app = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService, PricingService, CreditsService, AuthService],
+      providers: [
+        AppService,
+        PricingService,
+        CreditsService,
+        AuthService,
+        BillingService,
+        { provide: STRIPE_CLIENT, useValue: null },
+      ],
     }).compile();
 
     appController = app.get<AppController>(AppController);
@@ -1249,7 +1258,33 @@ describe('AppController', () => {
           { slug: 'funded', title: undefined, spent: 0.975 },
           { slug: 'second', title: undefined, spent: 0 },
         ],
+        autoTopup: null,
       });
+    });
+
+    it('should report the auto top-up settings', () => {
+      const credits = app.get(CreditsService);
+      credits.setAutoTopup(OWNER, { enabled: true, amount: 20, threshold: 50 });
+      credits.saveAutoTopupCard(OWNER, 'pm_1', { id: 'evt_1', type: 't' });
+      credits.failAutoTopup(
+        credits.claimAutoTopup(OWNER)!.id,
+        OWNER,
+        'card_declined',
+      );
+      expect(appController.getMe(OWNER).autoTopup).toEqual({
+        enabled: true,
+        amount: 20,
+        threshold: 50,
+        hasCard: true,
+        paused: true,
+        pausedReason: 'card_declined',
+      });
+    });
+
+    it('should check the auto top-up after each charge', () => {
+      const afterDebit = jest.spyOn(app.get(BillingService), 'afterDebit');
+      internals(appController['appService']).chargeOwner(OWNER, 0.1, 'funded');
+      expect(afterDebit).toHaveBeenCalledWith(OWNER);
     });
 
     it('should list stories without an owner under DEFAULT_OWNER_ADDRESS', () => {
@@ -1263,6 +1298,7 @@ describe('AppController', () => {
         address: STRANGER,
         balance: 100,
         stories: [],
+        autoTopup: null,
       });
       expect(balance(STRANGER)).toBeNull();
     });
@@ -1479,6 +1515,7 @@ describe('AppController', () => {
       const zeroFee = new AppService(
         app.get(PricingService),
         app.get(CreditsService),
+        app.get(BillingService),
       );
       internals(zeroFee).chargeOwner(OWNER, 0.1, 'funded');
       expect(balance(OWNER)).toBe(14.9);

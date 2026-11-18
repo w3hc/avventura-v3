@@ -15,7 +15,13 @@ import {
 import { join } from 'path';
 import { randomBytes } from 'crypto';
 import { assertCreditsPassword } from './credits-password';
-import { CreditsService } from './credits/credits.service';
+import { BillingService } from './billing/billing.service';
+import {
+  AutoTopupState,
+  autoTopupState,
+  CreditsService,
+  DEFAULT_CREDITS,
+} from './credits/credits.service';
 import { priceOf, serviceFeeRate } from './credits/service-fee';
 import { PricingService, TokenUsage } from './pricing/pricing.service';
 
@@ -74,8 +80,6 @@ const TEXT_LENGTH_RULES: Record<TextLength, string> = {
 
 const MODEL = 'claude-sonnet-5-5';
 
-export const DEFAULT_CREDITS = 100;
-
 const roundEur = (amount: number): number => parseFloat(amount.toFixed(6));
 
 export interface Player {
@@ -130,6 +134,7 @@ export interface Me {
   address: string;
   balance: number;
   stories: { slug: string; title: string; spent: number }[];
+  autoTopup: AutoTopupState | null;
 }
 
 type LegacyStoryData = StoryData & { creatorAddress?: string };
@@ -156,6 +161,7 @@ export class AppService implements OnModuleInit {
   constructor(
     private readonly pricingService: PricingService,
     private readonly creditsService: CreditsService,
+    private readonly billingService: BillingService,
   ) {}
 
   onModuleInit() {
@@ -331,6 +337,7 @@ export class AppService implements OnModuleInit {
       this.logger.debug(
         `Charged €${price} (LLM cost €${roundEur(cost)}) to ${owner} for story ${story}, credits left: €${credits}`,
       );
+      this.billingService.afterDebit(owner);
     } catch (error) {
       this.logger.error(
         `Failed to charge ${owner} for story ${story}: ${error instanceof Error ? error.message : 'Unknown error'}`,
@@ -1279,6 +1286,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     const spent = this.creditsService.spentByStory(
       stories.map((story) => story.slug),
     );
+    const autoTopup = this.creditsService.autoTopup(owner);
     return {
       address: owner,
       balance: this.creditsService.balance(owner) ?? DEFAULT_CREDITS,
@@ -1287,6 +1295,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         title: story.title,
         spent: spent[story.slug],
       })),
+      autoTopup: autoTopup && autoTopupState(autoTopup),
     };
   }
 

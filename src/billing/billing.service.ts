@@ -9,13 +9,13 @@ import {
 } from '@nestjs/common';
 import Database from 'better-sqlite3';
 import Stripe from 'stripe';
-import { DEFAULT_CREDITS } from '../app.service';
 import {
   AutoTopupClaim,
   AutoTopupSettings,
   AutoTopupState,
   autoTopupState,
   CreditsService,
+  DEFAULT_CREDITS,
 } from '../credits/credits.service';
 import { openDatabase } from '../credits/schema';
 import { STRIPE_CLIENT } from './stripe.client';

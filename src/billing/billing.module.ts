@@ -8,5 +8,6 @@ import { stripeClientProvider } from './stripe.client';
   imports: [AuthModule],
   controllers: [BillingController],
   providers: [BillingService, stripeClientProvider],
+  exports: [BillingService],
 })
 export class BillingModule {}

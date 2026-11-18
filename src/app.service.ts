@@ -122,7 +122,7 @@ export interface StoryData {
   sessions?: number;
   requests?: number;
   credits?: number;
-  creatorAddress?: string;
+  ownerAddress?: string;
 }
 
 export interface Me {
@@ -131,8 +131,10 @@ export interface Me {
   stories: { slug: string; title: string; spent: number }[];
 }
 
+type LegacyStoryData = StoryData & { creatorAddress?: string };
+
 const PROTECTED_STORY_FIELDS: readonly string[] = [
-  'creatorAddress',
+  'ownerAddress',
   'credits',
   'sessions',
   'requests',
@@ -156,18 +158,37 @@ export class AppService implements OnModuleInit {
       this.logger.log('games directory not found, creating it');
       mkdirSync(this.gamesDir, { recursive: true });
     }
-    this.moveStoryBalances();
+    const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+    if (existsSync(storiesPath)) {
+      const stories = JSON.parse(
+        readFileSync(storiesPath, 'utf-8'),
+      ) as LegacyStoryData[];
+      this.renameCreatorAddresses(storiesPath, stories);
+      this.moveStoryBalances(stories);
+    }
+  }
+
+  // Stories created before the rename store their owner as creatorAddress
+  private renameCreatorAddresses(
+    storiesPath: string,
+    stories: LegacyStoryData[],
+  ): void {
+    const legacy = stories.filter((story) => 'creatorAddress' in story);
+    if (legacy.length === 0) {
+      return;
+    }
+    for (const story of legacy) {
+      story.ownerAddress ??= story.creatorAddress;
+      delete story.creatorAddress;
+    }
+    writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
+    this.logger.log(
+      `Renamed creatorAddress to ownerAddress on ${legacy.length} stories`,
+    );
   }
 
   // Moves each story's balance to its owner, once
-  private moveStoryBalances(): void {
-    const storiesPath = join(process.cwd(), 'stories', 'stories.json');
-    if (!existsSync(storiesPath)) {
-      return;
-    }
-    const stories = JSON.parse(
-      readFileSync(storiesPath, 'utf-8'),
-    ) as StoryData[];
+  private moveStoryBalances(stories: StoryData[]): void {
     const ownerless: string[] = [];
     for (const story of stories) {
       const owner = this.ownerOf(story);
@@ -186,7 +207,7 @@ export class AppService implements OnModuleInit {
     }
     if (ownerless.length > 0) {
       this.logger.warn(
-        `OWNER_ADDRESS is not set: ${ownerless.length} stories without a creatorAddress keep their balance and can't be played`,
+        `DEFAULT_OWNER_ADDRESS is not set: ${ownerless.length} stories without an ownerAddress keep their balance and can't be played`,
       );
     }
   }
@@ -264,7 +285,7 @@ export class AppService implements OnModuleInit {
   }
 
   private ownerOf(story: StoryData): string | null {
-    const owner = story.creatorAddress ?? process.env.OWNER_ADDRESS;
+    const owner = story.ownerAddress ?? process.env.DEFAULT_OWNER_ADDRESS;
     return owner ? owner.toLowerCase() : null;
   }
 
@@ -962,12 +983,9 @@ ${ENDING_RULE}${playerNameReminder}`;
     return story;
   }
 
-  async createStory(
-    prompt: string,
-    creatorAddress: string,
-  ): Promise<StoryData> {
+  async createStory(prompt: string, ownerAddress: string): Promise<StoryData> {
     this.logger.log(`Creating new story from prompt: ${prompt}`);
-    const owner = this.assertCredits(creatorAddress.toLowerCase());
+    const owner = this.assertCredits(ownerAddress.toLowerCase());
 
     // Read the instruction file
     let instructions: string;
@@ -1126,7 +1144,7 @@ ${ENDING_RULE}${playerNameReminder}`;
           is_active: true,
           sessions: 0,
           requests: 0,
-          creatorAddress,
+          ownerAddress,
         };
 
         // Add the new story to the array
@@ -1198,14 +1216,14 @@ ${ENDING_RULE}${playerNameReminder}`;
       throw new HttpException('Story not found', HttpStatus.NOT_FOUND);
     }
 
-    const creatorAddress = stories[storyIndex].creatorAddress;
+    const ownerAddress = stories[storyIndex].ownerAddress;
     if (
-      !creatorAddress ||
-      creatorAddress.toLowerCase() !== signerAddress.toLowerCase()
+      !ownerAddress ||
+      ownerAddress.toLowerCase() !== signerAddress.toLowerCase()
     ) {
       this.logger.warn(`Rejected edit of story ${slug} by ${signerAddress}`);
       throw new HttpException(
-        'Only the story creator can edit it',
+        'Only the story owner can edit it',
         HttpStatus.FORBIDDEN,
       );
     }

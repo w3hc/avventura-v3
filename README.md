@@ -51,7 +51,7 @@ In `short` mode, a `desc` over the limit triggers one regeneration; if it is sti
 
 ## Credits
 
-Each story creator has one balance in euros, keyed by their lowercased address (the story's `creatorAddress`). Stories without a `creatorAddress` belong to `OWNER_ADDRESS`. A new address opens its balance at `100`. Players never sign in: playing a story charges its creator.
+Each story owner has one balance in euros, keyed by their lowercased address (the story's `ownerAddress`). Stories without an `ownerAddress` belong to `DEFAULT_OWNER_ADDRESS`. A new address opens its balance at `100`. Players never sign in: playing a story charges its owner.
 
 Balances live in a SQLite database at `DATABASE_PATH` (default `data/avventura.db`), created on startup with two tables:
 
@@ -64,7 +64,7 @@ Every AI call made by `POST /stories`, `POST /start` and `POST /move` is priced 
 
 When the owner's balance is `0` or below, `POST /stories`, `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
 
-On startup, each story's balance moves to its owner as two `adjustment` ledger rows, one taking it from the story and one giving it to the owner, so totals don't change. A story with no balance yet is first opened from its `credits` key in `stories/stories.json` (`100` without the key). A story already at `0` is skipped, so restarting moves nothing. Without `OWNER_ADDRESS`, stories that have no `creatorAddress` are skipped with a warning and return 402.
+On startup, each story's balance moves to its owner as two `adjustment` ledger rows, one taking it from the story and one giving it to the owner, so totals don't change. A story with no balance yet is first opened from its `credits` key in `stories/stories.json` (`100` without the key). A story already at `0` is skipped, so restarting moves nothing. Without `DEFAULT_OWNER_ADDRESS`, stories that have no `ownerAddress` are skipped with a warning and return 402.
 
 Top up an address with `POST /credits`:
 
@@ -98,7 +98,7 @@ Creating and editing a story, and `GET /me`, need a [Sign-In with Ethereum](http
 
 The message must be on chain `SIWE_CHAIN_ID` (default `1`), have an `expirationTime` at most `SIWE_MAX_AGE_SECONDS` (default `300`) after its `issuedAt`, and use a nonce that hasn't been seen before. When `SIWE_ALLOWED_DOMAINS` is set (comma-separated, such as `avventura.fun,localhost:3001`), its domain must be one of them. Anything else returns 401.
 
-`POST /stories` stores the signer's lowercased address as the story's `creatorAddress` in `stories/stories.json`. `POST /stories/edit` returns 403 unless the signer is that address, and ignores updates to `creatorAddress`, `credits`, `sessions`, `requests` and `created_at`. A story without `creatorAddress`, such as one created before this check, can't be edited until the key is set by hand.
+`POST /stories` stores the signer's lowercased address as the story's `ownerAddress` in `stories/stories.json`. `POST /stories/edit` returns 403 unless the signer is that address, and ignores updates to `ownerAddress`, `credits`, `sessions`, `requests` and `created_at`. A story without `ownerAddress`, such as one created before this check, can't be edited until the key is set by hand. On startup, a `creatorAddress` key left by an earlier version is renamed to `ownerAddress`.
 
 ## Pricing
 

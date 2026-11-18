@@ -18,7 +18,7 @@ import { CreditsService } from './credits/credits.service';
 import { PricingFile, PricingService } from './pricing/pricing.service';
 import * as modelsData from '../models-infomaniak.json';
 
-const CREATOR = '0x1111111111111111111111111111111111111111';
+const OWNER = '0x1111111111111111111111111111111111111111';
 const STRANGER = '0x2222222222222222222222222222222222222222';
 
 describe('AppController', () => {
@@ -396,10 +396,10 @@ describe('AppController', () => {
 
       const result = await appController.createStory(
         { prompt: mockPrompt },
-        CREATOR,
+        OWNER,
       );
       expect(result).toEqual(mockStory);
-      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt, CREATOR);
+      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt, OWNER);
     });
 
     it('should handle API errors gracefully', async () => {
@@ -409,9 +409,9 @@ describe('AppController', () => {
         .mockRejectedValue(new Error('Failed to get AI response'));
 
       await expect(
-        appController.createStory({ prompt: mockPrompt }, CREATOR),
+        appController.createStory({ prompt: mockPrompt }, OWNER),
       ).rejects.toThrow('Failed to get AI response');
-      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt, CREATOR);
+      expect(createStorySpy).toHaveBeenCalledWith(mockPrompt, OWNER);
     });
   });
 
@@ -480,10 +480,10 @@ describe('AppController', () => {
           slug: mockSlug,
           updates: mockUpdates,
         },
-        CREATOR,
+        OWNER,
       );
       expect(result).toEqual(mockUpdatedStory);
-      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, CREATOR);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, OWNER);
     });
 
     it('should update story slug successfully', async () => {
@@ -550,11 +550,11 @@ describe('AppController', () => {
           slug: mockSlug,
           updates: mockUpdates,
         },
-        CREATOR,
+        OWNER,
       );
       expect(result).toEqual(mockUpdatedStory);
       expect(result.slug).toBe('medieval-montpellier');
-      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, CREATOR);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, OWNER);
     });
 
     it('should update multiple fields successfully', async () => {
@@ -623,13 +623,13 @@ describe('AppController', () => {
           slug: mockSlug,
           updates: mockUpdates,
         },
-        CREATOR,
+        OWNER,
       );
       expect(result).toEqual(mockUpdatedStory);
       expect(result.title).toBe('Updated Title');
       expect(result.is_active).toBe(false);
       expect(result.sessions).toBe(150);
-      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, CREATOR);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, OWNER);
     });
 
     it('should handle story not found error', () => {
@@ -644,10 +644,10 @@ describe('AppController', () => {
       expect(() =>
         appController.editStory(
           { slug: mockSlug, updates: mockUpdates },
-          CREATOR,
+          OWNER,
         ),
       ).toThrow('Story not found');
-      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, CREATOR);
+      expect(editStorySpy).toHaveBeenCalledWith(mockSlug, mockUpdates, OWNER);
     });
   });
 
@@ -679,7 +679,7 @@ describe('AppController', () => {
           {
             slug: 'owned',
             title: 'Owned',
-            creatorAddress: CREATOR,
+            ownerAddress: OWNER,
             credits: 10,
             sessions: 3,
             requests: 7,
@@ -696,11 +696,11 @@ describe('AppController', () => {
       delete process.env.ANTHROPIC_API_KEY;
     });
 
-    it('lets the creator edit their story', () => {
+    it('lets the owner edit their story', () => {
       const result = appController['appService'].editStory(
         'owned',
         { title: 'Renamed' },
-        CREATOR.toUpperCase().replace('0X', '0x'),
+        OWNER.toUpperCase().replace('0X', '0x'),
       );
       expect(result.title).toBe('Renamed');
       expect(readStories()[0].title).toBe('Renamed');
@@ -711,16 +711,16 @@ describe('AppController', () => {
         'owned',
         {
           title: 'Renamed',
-          creatorAddress: STRANGER,
+          ownerAddress: STRANGER,
           credits: 1000,
           sessions: 0,
           requests: 0,
         },
-        CREATOR,
+        OWNER,
       );
       expect(readStories()[0]).toMatchObject({
         title: 'Renamed',
-        creatorAddress: CREATOR,
+        ownerAddress: OWNER,
         credits: 10,
         sessions: 3,
         requests: 7,
@@ -735,31 +735,27 @@ describe('AppController', () => {
           { title: 'Hijacked' },
           STRANGER,
         ),
-      ).toThrow('Only the story creator can edit it');
+      ).toThrow('Only the story owner can edit it');
       expect(readStories()[0].title).toBe('Owned');
     });
 
-    it('returns 403 for a story without a creator', () => {
+    it('returns 403 for a story without an owner', () => {
       expect(() =>
         appController['appService'].editStory(
           'legacy',
           { title: 'Claimed' },
-          CREATOR,
+          OWNER,
         ),
-      ).toThrow('Only the story creator can edit it');
+      ).toThrow('Only the story owner can edit it');
     });
 
     it('returns 404 before checking ownership', () => {
       expect(() =>
-        appController['appService'].editStory(
-          'missing',
-          { title: 'x' },
-          CREATOR,
-        ),
+        appController['appService'].editStory('missing', { title: 'x' }, OWNER),
       ).toThrow('Story not found');
     });
 
-    it('stores the creator address on a new story', async () => {
+    it('stores the owner address on a new story', async () => {
       writeFileSync(join(dir, 'avventura-edit-instruction-file.md'), 'Rules');
       process.env.ANTHROPIC_API_KEY = 'test';
       const generated = {
@@ -767,7 +763,7 @@ describe('AppController', () => {
         title: 'New story',
         content: '# New story',
         homepage_display: {},
-        creatorAddress: STRANGER,
+        ownerAddress: STRANGER,
       };
       jest.spyOn(global, 'fetch').mockResolvedValue(
         new Response(
@@ -782,12 +778,12 @@ describe('AppController', () => {
 
       const story = await appController['appService'].createStory(
         'A prompt',
-        CREATOR,
+        OWNER,
       );
-      expect(story.creatorAddress).toBe(CREATOR);
+      expect(story.ownerAddress).toBe(OWNER);
       expect(readStories()[2]).toMatchObject({
         slug: 'new-story',
-        creatorAddress: CREATOR,
+        ownerAddress: OWNER,
       });
       expect(readStories()[2]).not.toHaveProperty('credits');
 
@@ -795,25 +791,25 @@ describe('AppController', () => {
       const { 'new-story': spent } = credits.spentByStory(['new-story']);
       expect(spent).toBeGreaterThan(0);
       expect(credits.balance('new-story')).toBeNull();
-      expect(credits.balance(CREATOR)).toBeCloseTo(100 - spent, 6);
+      expect(credits.balance(OWNER)).toBeCloseTo(100 - spent, 6);
       expect(writeCost).toHaveBeenCalledWith(
         'story:new-story',
         expect.closeTo(spent, 6),
       );
     });
 
-    it('refuses to create a story with 402 when the creator is out of credits', async () => {
+    it('refuses to create a story with 402 when the owner is out of credits', async () => {
       process.env.ANTHROPIC_API_KEY = 'test';
-      app.get(CreditsService).open(CREATOR, 0);
+      app.get(CreditsService).open(OWNER, 0);
       const fetchSpy = jest.spyOn(global, 'fetch');
 
       await expect(
-        appController['appService'].createStory('A prompt', CREATOR),
+        appController['appService'].createStory('A prompt', OWNER),
       ).rejects.toMatchObject({ status: 402, message: 'Not enough credits' });
       expect(fetchSpy).not.toHaveBeenCalled();
     });
 
-    it('charges the creator for a response that is not a story', async () => {
+    it('charges the owner for a response that is not a story', async () => {
       writeFileSync(join(dir, 'avventura-edit-instruction-file.md'), 'Rules');
       process.env.ANTHROPIC_API_KEY = 'test';
       jest.spyOn(global, 'fetch').mockResolvedValue(
@@ -827,9 +823,9 @@ describe('AppController', () => {
       const writeCost = mockWriteCost();
 
       await expect(
-        appController['appService'].createStory('A prompt', CREATOR),
+        appController['appService'].createStory('A prompt', OWNER),
       ).rejects.toMatchObject({ status: 502 });
-      expect(app.get(CreditsService).balance(CREATOR)).toBeLessThan(100);
+      expect(app.get(CreditsService).balance(OWNER)).toBeLessThan(100);
       expect(writeCost).toHaveBeenCalledWith(
         'story:unparsed',
         expect.any(Number),
@@ -1140,7 +1136,7 @@ describe('AppController', () => {
 
     const balance = (owner: string) => app.get(CreditsService).balance(owner);
 
-    const OWNER = '0xAbC0000000000000000000000000000000000001';
+    const DEFAULT_OWNER = '0xAbC0000000000000000000000000000000000001';
     const BROKE = '0x3333333333333333333333333333333333333333';
     const OVERDRAWN = '0x4444444444444444444444444444444444444444';
 
@@ -1153,28 +1149,28 @@ describe('AppController', () => {
       writeFileSync(
         storiesPath,
         JSON.stringify([
-          { slug: 'funded', credits: 10, creatorAddress: CREATOR },
-          { slug: 'second', credits: 5, creatorAddress: CREATOR },
+          { slug: 'funded', credits: 10, ownerAddress: OWNER },
+          { slug: 'second', credits: 5, ownerAddress: OWNER },
           { slug: 'legacy' },
-          { slug: 'broke', credits: 0, creatorAddress: BROKE },
-          { slug: 'overdrawn', credits: -1, creatorAddress: OVERDRAWN },
+          { slug: 'broke', credits: 0, ownerAddress: BROKE },
+          { slug: 'overdrawn', credits: -1, ownerAddress: OVERDRAWN },
         ]),
       );
       jest.spyOn(process, 'cwd').mockReturnValue(dir);
       process.env.CREDITS_PASSWORD = password;
-      process.env.OWNER_ADDRESS = OWNER;
+      process.env.DEFAULT_OWNER_ADDRESS = DEFAULT_OWNER;
       appController['appService'].onModuleInit();
     });
 
     afterEach(() => {
       jest.restoreAllMocks();
       delete process.env.CREDITS_PASSWORD;
-      delete process.env.OWNER_ADDRESS;
+      delete process.env.DEFAULT_OWNER_ADDRESS;
     });
 
     it('should move each story balance to its owner at startup', () => {
-      expect(balance(CREATOR)).toBe(15);
-      expect(balance(OWNER.toLowerCase())).toBe(100);
+      expect(balance(OWNER)).toBe(15);
+      expect(balance(DEFAULT_OWNER.toLowerCase())).toBe(100);
       expect(balance(BROKE)).toBe(0);
       expect(balance(OVERDRAWN)).toBe(-1);
       for (const slug of ['funded', 'second', 'legacy', 'broke', 'overdrawn']) {
@@ -1182,13 +1178,30 @@ describe('AppController', () => {
       }
     });
 
-    it('should not move anything on a second startup', () => {
+    it('should rename creatorAddress to ownerAddress at startup', () => {
+      writeFileSync(
+        storiesPath,
+        JSON.stringify([
+          { slug: 'renamed', credits: 3, creatorAddress: STRANGER },
+          { slug: 'kept', ownerAddress: OWNER },
+        ]),
+      );
       appController['appService'].onModuleInit();
-      expect(balance(CREATOR)).toBe(15);
-      expect(balance(OWNER.toLowerCase())).toBe(100);
+
+      expect(readStories()).toEqual([
+        { slug: 'renamed', credits: 3, ownerAddress: STRANGER },
+        { slug: 'kept', ownerAddress: OWNER },
+      ]);
+      expect(balance(STRANGER)).toBe(3);
     });
 
-    it('should leave stories without a creator unplayable without OWNER_ADDRESS', async () => {
+    it('should not move anything on a second startup', () => {
+      appController['appService'].onModuleInit();
+      expect(balance(OWNER)).toBe(15);
+      expect(balance(DEFAULT_OWNER.toLowerCase())).toBe(100);
+    });
+
+    it('should leave stories without an owner unplayable without DEFAULT_OWNER_ADDRESS', async () => {
       const dir = mkdtempSync(join(tmpdir(), 'avventura-'));
       mkdirSync(join(dir, 'stories'));
       writeFileSync(
@@ -1196,7 +1209,7 @@ describe('AppController', () => {
         JSON.stringify([{ slug: 'orphan', credits: 10 }]),
       );
       jest.spyOn(process, 'cwd').mockReturnValue(dir);
-      delete process.env.OWNER_ADDRESS;
+      delete process.env.DEFAULT_OWNER_ADDRESS;
       appController['appService'].onModuleInit();
 
       expect(balance('orphan')).toBeNull();
@@ -1207,13 +1220,13 @@ describe('AppController', () => {
 
     it("should return the signer's balance and stories with their spend", () => {
       const service = internals(appController['appService']);
-      service.chargeOwner(CREATOR, 0.25, 'funded', 'GAME');
-      service.chargeOwner(CREATOR, 0.5, 'funded', 'GAME');
+      service.chargeOwner(OWNER, 0.25, 'funded', 'GAME');
+      service.chargeOwner(OWNER, 0.5, 'funded', 'GAME');
 
       expect(
-        appController.getMe(CREATOR.toUpperCase().replace('0X', '0x')),
+        appController.getMe(OWNER.toUpperCase().replace('0X', '0x')),
       ).toEqual({
-        address: CREATOR,
+        address: OWNER,
         balance: 14.25,
         stories: [
           { slug: 'funded', title: undefined, spent: 0.75 },
@@ -1222,8 +1235,8 @@ describe('AppController', () => {
       });
     });
 
-    it('should list stories without a creator under OWNER_ADDRESS', () => {
-      expect(appController.getMe(OWNER).stories).toEqual([
+    it('should list stories without an owner under DEFAULT_OWNER_ADDRESS', () => {
+      expect(appController.getMe(DEFAULT_OWNER).stories).toEqual([
         { slug: 'legacy', title: undefined, spent: 0 },
       ]);
     });
@@ -1239,12 +1252,12 @@ describe('AppController', () => {
 
     it('should add credits to an address and return the new balance', () => {
       const result = appController.addCredits({
-        address: CREATOR,
+        address: OWNER,
         amount: 5,
         password,
       });
       expect(result).toEqual({ added: 5, credits: 20 });
-      expect(balance(CREATOR)).toBe(20);
+      expect(balance(OWNER)).toBe(20);
       expect(readStories()[0].credits).toBe(10);
     });
 
@@ -1272,13 +1285,13 @@ describe('AppController', () => {
     it('should refuse top-ups when no password is configured', () => {
       delete process.env.CREDITS_PASSWORD;
       expect(() =>
-        appController.addCredits({ address: CREATOR, amount: 5, password }),
+        appController.addCredits({ address: OWNER, amount: 5, password }),
       ).toThrow('CREDITS_PASSWORD is not configured');
     });
 
     it.each([0, -5, 'five'])('should reject amount %p', async (amount) => {
       const dto = plainToInstance(AddCreditsDto, {
-        address: CREATOR,
+        address: OWNER,
         amount,
         password,
       });
@@ -1384,9 +1397,9 @@ describe('AppController', () => {
 
     it('should deduct the request cost from the owner and keep the story', () => {
       const service = internals(appController['appService']);
-      service.chargeOwner(CREATOR, 0.0123456, 'funded', 'GAME');
-      service.chargeOwner(CREATOR, 0.5, 'second', 'GAME');
-      expect(balance(CREATOR)).toBe(14.487654);
+      service.chargeOwner(OWNER, 0.0123456, 'funded', 'GAME');
+      service.chargeOwner(OWNER, 0.5, 'second', 'GAME');
+      expect(balance(OWNER)).toBe(14.487654);
       expect(
         app.get(CreditsService).spentByStory(['funded', 'second']),
       ).toEqual({ funded: 0.012346, second: 0.5 });

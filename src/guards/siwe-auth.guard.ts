@@ -22,7 +22,7 @@ function numberFromEnv(name: string, fallback: number): number {
  * Verifies that the request carries a valid, fresh SIWE (EIP-4361) signature
  * scoped to this exact request, whose nonce hasn't been used yet. It only
  * proves who signed: callers still check `request.siweAddress` against what
- * it should own (a story's creatorAddress) before allowing the action.
+ * it should own (a story's ownerAddress) before allowing the action.
  */
 @Injectable()
 export class SiweAuthGuard implements CanActivate {

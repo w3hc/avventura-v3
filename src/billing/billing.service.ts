@@ -10,7 +10,12 @@ import {
 import Database from 'better-sqlite3';
 import Stripe from 'stripe';
 import { DEFAULT_CREDITS } from '../app.service';
-import { CreditsService } from '../credits/credits.service';
+import {
+  AutoTopupSettings,
+  AutoTopupState,
+  autoTopupState,
+  CreditsService,
+} from '../credits/credits.service';
 import { openDatabase } from '../credits/schema';
 import { STRIPE_CLIENT } from './stripe.client';
 
@@ -30,9 +35,12 @@ interface Statements {
   replaceCustomer: Database.Statement<[string, string, string]>;
 }
 
-const returnUrl = (topup: 'success' | 'cancel'): string => {
+const returnUrl = (
+  ...[param, value]:
+    ['topup', 'success' | 'cancel'] | ['card', 'saved' | 'cancel']
+): string => {
   const url = new URL(process.env.BILLING_RETURN_URL || DEFAULT_RETURN_URL);
-  url.searchParams.set('topup', topup);
+  url.searchParams.set(param, value);
   return url.toString();
 };
 
@@ -124,50 +132,98 @@ export class BillingService implements OnModuleDestroy {
     return statements.customer.get(owner)!.customer_id;
   }
 
-  // A Checkout Session for paying `amount` EUR, credited net of the fee
-  async checkout(owner: string, amount: number): Promise<{ url: string }> {
-    const { stripe } = this.configured();
-    const metadata = { kind: 'topup' satisfies PaymentKind, owner };
-    const create = (customer: string) =>
-      stripe.checkout.sessions.create({
-        mode: 'payment',
-        customer,
-        allowed_payment_method_types: ['card'],
-        line_items: [
-          {
-            quantity: 1,
-            price_data: {
-              currency: 'eur',
-              unit_amount: Math.round(amount * 100),
-              product_data: { name: 'Avventura credits' },
-            },
-          },
-        ],
-        success_url: returnUrl('success'),
-        cancel_url: returnUrl('cancel'),
-        metadata,
-        payment_intent_data: { metadata },
-        invoice_creation: {
-          enabled: true,
-          invoice_data: { footer: INVOICE_FOOTER, metadata },
-        },
-      });
+  // Runs `request` with the owner's Customer, once more with a new one if
+  // Stripe no longer has it
+  private async withCustomer<T>(
+    owner: string,
+    action: string,
+    request: (customer: string) => Promise<T>,
+  ): Promise<T> {
     const customer = await this.customerFor(owner);
-    const session = await this.call(
-      'create the checkout session',
-      create(customer).catch(async (error: unknown) => {
+    return this.call(
+      action,
+      request(customer).catch(async (error: unknown) => {
         if (!isMissingCustomer(error)) {
           throw error;
         }
         this.logger.warn(`Stripe no longer has ${customer}, creating another`);
-        return create(await this.customerFor(owner, customer));
+        return request(await this.customerFor(owner, customer));
       }),
+    );
+  }
+
+  // A Checkout Session for paying `amount` EUR, credited net of the fee
+  async checkout(owner: string, amount: number): Promise<{ url: string }> {
+    const { stripe } = this.configured();
+    const metadata = { kind: 'topup' satisfies PaymentKind, owner };
+    const session = await this.withCustomer(
+      owner,
+      'create the checkout session',
+      (customer) =>
+        stripe.checkout.sessions.create({
+          mode: 'payment',
+          customer,
+          allowed_payment_method_types: ['card'],
+          line_items: [
+            {
+              quantity: 1,
+              price_data: {
+                currency: 'eur',
+                unit_amount: Math.round(amount * 100),
+                product_data: { name: 'Avventura credits' },
+              },
+            },
+          ],
+          success_url: returnUrl('topup', 'success'),
+          cancel_url: returnUrl('topup', 'cancel'),
+          metadata,
+          payment_intent_data: { metadata },
+          invoice_creation: {
+            enabled: true,
+            invoice_data: { footer: INVOICE_FOOTER, metadata },
+          },
+        }),
     );
     if (!session.url) {
       throw new BadGatewayException('Stripe returned no checkout URL');
     }
     this.logger.log(`Checkout of €${amount} started for ${owner}`);
     return { url: session.url };
+  }
+
+  // A setup-mode Checkout Session that saves a card for auto top-ups
+  async setupAutoTopup(owner: string): Promise<{ url: string }> {
+    const { stripe } = this.configured();
+    const metadata = { kind: 'auto_topup_setup', owner };
+    const session = await this.withCustomer(
+      owner,
+      'create the setup session',
+      (customer) =>
+        stripe.checkout.sessions.create({
+          mode: 'setup',
+          currency: 'eur',
+          customer,
+          allowed_payment_method_types: ['card'],
+          success_url: returnUrl('card', 'saved'),
+          cancel_url: returnUrl('card', 'cancel'),
+          metadata,
+          setup_intent_data: { metadata },
+        }),
+    );
+    if (!session.url) {
+      throw new BadGatewayException('Stripe returned no checkout URL');
+    }
+    this.logger.log(`Card setup started for ${owner}`);
+    return { url: session.url };
+  }
+
+  setAutoTopup(owner: string, settings: AutoTopupSettings): AutoTopupState {
+    this.configured();
+    const saved = this.creditsService.setAutoTopup(owner, settings);
+    this.logger.log(
+      `Auto top-up for ${owner} ${saved.enabled ? `on: €${saved.amount} at €${saved.threshold}` : 'off'}`,
+    );
+    return autoTopupState(saved);
   }
 
   // Verifies the signature of a webhook payload and handles its event
@@ -199,6 +255,12 @@ export class BillingService implements OnModuleDestroy {
   ): Promise<void> {
     const session = event.data.object;
     if (
+      session.mode === 'setup' &&
+      session.metadata?.kind === 'auto_topup_setup'
+    ) {
+      return this.onCardSaved(event);
+    }
+    if (
       session.mode !== 'payment' ||
       session.payment_status !== 'paid' ||
       session.metadata?.kind !== 'topup'
@@ -215,6 +277,34 @@ export class BillingService implements OnModuleDestroy {
       typeof intent === 'string' ? intent : intent.id,
       'topup',
     );
+  }
+
+  // Stores the card of a completed setup session as the auto top-up card
+  private async onCardSaved(
+    event: Stripe.CheckoutSessionCompletedEvent,
+  ): Promise<void> {
+    const session = event.data.object;
+    const owner = session.metadata?.owner?.toLowerCase();
+    const setupIntent = session.setup_intent;
+    if (!owner || !setupIntent) {
+      this.logger.error(`Setup session ${session.id} has no owner or intent`);
+      return;
+    }
+    const intent = await this.call(
+      'retrieve the card setup',
+      this.configured().stripe.setupIntents.retrieve(
+        typeof setupIntent === 'string' ? setupIntent : setupIntent.id,
+      ),
+    );
+    const card = intent.payment_method;
+    if (intent.status !== 'succeeded' || !card) {
+      this.logger.warn(`Skipped ${intent.id}: ${intent.status}`);
+      return;
+    }
+    const paymentMethod = typeof card === 'string' ? card : card.id;
+    if (this.creditsService.saveAutoTopupCard(owner, paymentMethod, event)) {
+      this.logger.log(`Saved ${paymentMethod} for ${owner}'s auto top-up`);
+    }
   }
 
   // Credits the net (amount - Stripe fee) of a succeeded PaymentIntent of

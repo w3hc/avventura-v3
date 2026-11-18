@@ -66,6 +66,7 @@ describe('BillingService', () => {
     customers: { create: jest.Mock };
     checkout: { sessions: { create: jest.Mock } };
     paymentIntents: { retrieve: jest.Mock };
+    setupIntents: { retrieve: jest.Mock };
     webhooks: Stripe['webhooks'];
   };
 
@@ -79,6 +80,13 @@ describe('BillingService', () => {
     stripe = {
       paymentIntents: {
         retrieve: jest.fn().mockResolvedValue(paymentIntent()),
+      },
+      setupIntents: {
+        retrieve: jest.fn().mockResolvedValue({
+          id: 'seti_1',
+          status: 'succeeded',
+          payment_method: 'pm_1',
+        }),
       },
       webhooks: signer.webhooks,
       customers: { create: jest.fn().mockResolvedValue({ id: 'cus_1' }) },
@@ -202,6 +210,70 @@ describe('BillingService', () => {
     });
   });
 
+  describe('setupAutoTopup', () => {
+    it('creates a setup session for a card in EUR', async () => {
+      await expect(billing.setupAutoTopup(OWNER)).resolves.toEqual({
+        url: 'https://checkout.stripe.com/c/1',
+      });
+      const metadata = { kind: 'auto_topup_setup', owner: OWNER };
+      expect(stripe.checkout.sessions.create).toHaveBeenCalledWith({
+        mode: 'setup',
+        currency: 'eur',
+        customer: 'cus_1',
+        allowed_payment_method_types: ['card'],
+        success_url: 'https://avventura.fun/dashboard?card=saved',
+        cancel_url: 'https://avventura.fun/dashboard?card=cancel',
+        metadata,
+        setup_intent_data: { metadata },
+      });
+    });
+
+    it('reuses the checkout customer', async () => {
+      await billing.checkout(OWNER, 5);
+      await billing.setupAutoTopup(OWNER);
+      expect(stripe.customers.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns 503 without STRIPE_WEBHOOK_SECRET', async () => {
+      delete process.env.STRIPE_WEBHOOK_SECRET;
+      await expect(billing.setupAutoTopup(OWNER)).rejects.toThrow(
+        ServiceUnavailableException,
+      );
+    });
+  });
+
+  describe('setAutoTopup', () => {
+    it('saves the settings and reports them', () => {
+      expect(
+        billing.setAutoTopup(OWNER, {
+          enabled: true,
+          amount: 20,
+          threshold: 2.5,
+        }),
+      ).toEqual({
+        enabled: true,
+        amount: 20,
+        threshold: 2.5,
+        hasCard: false,
+        paused: false,
+        pausedReason: null,
+      });
+      expect(billing.setAutoTopup(OWNER, { enabled: false })).toMatchObject({
+        enabled: false,
+        amount: 20,
+        threshold: 2.5,
+      });
+    });
+
+    it('returns 503 without STRIPE_WEBHOOK_SECRET', () => {
+      delete process.env.STRIPE_WEBHOOK_SECRET;
+      expect(() => billing.setAutoTopup(OWNER, { enabled: true })).toThrow(
+        ServiceUnavailableException,
+      );
+      expect(credits.autoTopup(OWNER)).toBeNull();
+    });
+  });
+
   describe('handleWebhook', () => {
     const deliver = ({
       body,
@@ -242,6 +314,60 @@ describe('BillingService', () => {
       await deliver(signed(checkoutCompleted(session)));
       expect(stripe.paymentIntents.retrieve).not.toHaveBeenCalled();
       expect(credits.balance(OWNER)).toBeNull();
+    });
+
+    describe('a completed setup session', () => {
+      const setupCompleted = (id = 'evt_setup') =>
+        checkoutCompleted(
+          {
+            mode: 'setup',
+            payment_status: 'no_payment_required',
+            payment_intent: null,
+            setup_intent: 'seti_1',
+            metadata: { kind: 'auto_topup_setup', owner: OWNER },
+          },
+          id,
+        );
+
+      it('stores the saved card and resumes auto top-up', async () => {
+        credits.setAutoTopup(OWNER, { enabled: true });
+        credits.saveAutoTopupCard(OWNER, 'pm_old', { id: 'evt_0', type: 't' });
+        credits.open(OWNER, 0);
+        credits.failAutoTopup(
+          credits.claimAutoTopup(OWNER)!.id,
+          OWNER,
+          'card_declined',
+        );
+        await deliver(signed(setupCompleted()));
+        expect(stripe.setupIntents.retrieve).toHaveBeenCalledWith('seti_1');
+        expect(credits.autoTopup(OWNER)).toMatchObject({
+          enabled: true,
+          paymentMethod: 'pm_1',
+          pausedReason: null,
+        });
+      });
+
+      it('ignores a replayed event', async () => {
+        const delivery = signed(setupCompleted());
+        await deliver(delivery);
+        stripe.setupIntents.retrieve.mockResolvedValue({
+          id: 'seti_1',
+          status: 'succeeded',
+          payment_method: 'pm_2',
+        });
+        await deliver(delivery);
+        expect(credits.autoTopup(OWNER)?.paymentMethod).toBe('pm_1');
+      });
+
+      it('skips a SetupIntent that did not succeed', async () => {
+        stripe.setupIntents.retrieve.mockResolvedValue({
+          id: 'seti_1',
+          status: 'requires_payment_method',
+          payment_method: null,
+        });
+        await deliver(signed(setupCompleted()));
+        expect(credits.autoTopup(OWNER)).toBeNull();
+      });
     });
 
     it('ignores other event types', async () => {

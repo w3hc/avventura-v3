@@ -1,6 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import { CheckoutDto } from './billing.controller';
+import { AutoTopupDto, CheckoutDto } from './billing.controller';
 
 const errors = async (amount: unknown): Promise<number> =>
   (await validate(plainToInstance(CheckoutDto, { amount }))).length;
@@ -16,4 +16,32 @@ describe('CheckoutDto', () => {
       expect(await errors(amount)).toBeGreaterThan(0);
     },
   );
+});
+
+describe('AutoTopupDto', () => {
+  const errors = async (body: object): Promise<number> =>
+    (await validate(plainToInstance(AutoTopupDto, body))).length;
+
+  it.each([
+    { enabled: true, amount: 10, threshold: 5 },
+    { enabled: true, amount: 500, threshold: 0 },
+    { enabled: false },
+    { enabled: true },
+    { enabled: true, threshold: 1000.5 },
+  ])('accepts %p', async (body) => {
+    expect(await errors(body)).toBe(0);
+  });
+
+  it.each([
+    {},
+    { enabled: 'yes' },
+    { enabled: true, amount: 4.99 },
+    { enabled: true, amount: 500.01 },
+    { enabled: true, amount: 10.005 },
+    { enabled: true, threshold: -1 },
+    { enabled: true, threshold: 1.001 },
+    { enabled: true, amount: null },
+  ])('rejects %p', async (body) => {
+    expect(await errors(body)).toBeGreaterThan(0);
+  });
 });

@@ -55,6 +55,25 @@ export interface AutoTopupClaim {
   paymentMethod: string;
 }
 
+// What GET /me and PUT /billing/auto-topup report, amounts in EUR
+export interface AutoTopupState {
+  enabled: boolean;
+  amount: number;
+  threshold: number;
+  hasCard: boolean;
+  paused: boolean;
+  pausedReason: string | null;
+}
+
+export const autoTopupState = (settings: AutoTopup): AutoTopupState => ({
+  enabled: settings.enabled,
+  amount: settings.amount,
+  threshold: settings.threshold,
+  hasCard: settings.paymentMethod !== null,
+  paused: settings.pausedReason !== null,
+  pausedReason: settings.pausedReason,
+});
+
 // Used until the creator sets their own: add €10 when credits reach €5
 export const DEFAULT_AUTO_TOPUP = { amount: 10, threshold: 5 };
 

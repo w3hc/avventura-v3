@@ -51,39 +51,47 @@ In `short` mode, a `desc` over the limit triggers one regeneration; if it is sti
 
 ## Credits
 
-Each story has a balance in euros, opened at `100` when the story is created. Balances live in a SQLite database at `DATABASE_PATH` (default `data/avventura.db`), created on startup with two tables:
+Each story creator has one balance in euros, keyed by their lowercased address (the story's `creatorAddress`). Stories without a `creatorAddress` belong to `OWNER_ADDRESS`. A new address opens its balance at `100`. Players never sign in: playing a story charges its creator.
 
-- `balances`: one row per owner (for now, the story slug) with its current amount
+Balances live in a SQLite database at `DATABASE_PATH` (default `data/avventura.db`), created on startup with two tables:
+
+- `balances`: one row per owner with its current amount
 - `ledger`: one row per movement, with the owner, story, game, kind (`llm`, `topup` or `adjustment`), LLM cost, amount and date
 
 Amounts are stored in micro-euros. Every charge and top-up writes its ledger row and updates the balance in a single transaction, so a balance always equals the sum of its ledger, even under concurrent requests.
 
-Every AI call made by `POST /start` and `POST /move` is priced in euros from the tokens it used (input, cache writes, cache reads and output, at the current `claude-sonnet-5-5` rates, see [Pricing](#pricing)). That amount is charged to the story as an `llm` ledger row and added to the game's `spent` key in `games/<id>.json`. `POST /move` returns the game's `spent` total.
+Every AI call made by `POST /stories`, `POST /start` and `POST /move` is priced in euros from the tokens it used (input, cache writes, cache reads and output, at the current `claude-sonnet-5-5` rates, see [Pricing](#pricing)). That amount is charged to the story's owner as an `llm` ledger row tagged with the story. `POST /start` and `POST /move` also add it to the game's `spent` key in `games/<id>.json`, and `POST /move` returns the game's `spent` total. Story creation is charged even when the AI response isn't a valid story, since the call was paid for.
 
-When a story's balance is `0` or below, `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
+When the owner's balance is `0` or below, `POST /stories`, `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
 
-To import the `credits` keys of `stories/stories.json` into the database, as an opening `adjustment` per story (`100` for a story without the key), then remove those keys from the file:
+On startup, each story's balance moves to its owner as two `adjustment` ledger rows, one taking it from the story and one giving it to the owner, so totals don't change. A story with no balance yet is first opened from its `credits` key in `stories/stories.json` (`100` without the key). A story already at `0` is skipped, so restarting moves nothing. Without `OWNER_ADDRESS`, stories that have no `creatorAddress` are skipped with a warning and return 402.
 
-```bash
-pnpm credits:migrate
-```
-
-Stories that already have a balance are skipped, so running it again changes nothing. A story still missing from the database when it's first played or topped up is opened the same way.
-
-Top up a story with `POST /stories/credits`:
+Top up an address with `POST /credits`:
 
 ```bash
-curl -X POST localhost:3000/stories/credits \
+curl -X POST localhost:3000/credits \
   -H 'Content-Type: application/json' \
-  -d '{"slug": "montpellier", "amount": 20, "password": "..."}'
+  -d '{"address": "0x1111111111111111111111111111111111111111", "amount": 20, "password": "..."}'
 # {"added": 20, "credits": 117.42}
 ```
 
-The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an unknown slug 404.
+The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an invalid address 400.
+
+`GET /me` returns the signer's account, with a SIWE signature whose statement is `Authorize GET /me` (see [Story ownership](#story-ownership)):
+
+```json
+{
+  "address": "0x1111111111111111111111111111111111111111",
+  "balance": 117.42,
+  "stories": [{ "slug": "montpellier", "title": "Montpellier", "spent": 2.58 }]
+}
+```
+
+`spent` is the total of the story's `llm` charges in euros.
 
 ## Story ownership
 
-Creating and editing a story need a [Sign-In with Ethereum](https://eips.ethereum.org/EIPS/eip-4361) (SIWE) signature on each request, sent in two headers:
+Creating and editing a story, and `GET /me`, need a [Sign-In with Ethereum](https://eips.ethereum.org/EIPS/eip-4361) (SIWE) signature on each request, sent in two headers:
 
 - `x-siwe-message`: the SIWE message, percent-encoded (`encodeURIComponent`), whose statement is `Authorize <METHOD> <path>` for this exact request, such as `Authorize POST /stories` or `Authorize POST /stories/edit`
 - `x-siwe-signature`: the signature of that message

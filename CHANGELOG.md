@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `GET /me` returns the signer's address, balance and owned stories, each with its LLM spend in euros (`spent`), behind a SIWE signature on the request ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
+- `POST /credits` tops up an address's balance, protected by `CREDITS_PASSWORD` ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
+- `POST /stories` returns 402 Payment Required without calling the AI when the creator's balance is 0 or below ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
+- `.env.template` lists `OWNER_ADDRESS` ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
 - Story balances and a ledger of every charge, top-up and adjustment are stored in SQLite with [better-sqlite3](https://github.com/WiseLibs/better-sqlite3), at `DATABASE_PATH` (default `data/avventura.db`, git-ignored). Each movement writes its ledger row and updates the balance in one transaction ([#41](https://github.com/w3hc/avventura-v3/issues/41)).
 - `pnpm credits:migrate` (`scripts/migrate-credits.mts`) imports each story's `credits` as an opening adjustment and removes the key from `stories/stories.json`; running it again changes nothing ([#41](https://github.com/w3hc/avventura-v3/issues/41)).
 - `.env.template` lists `DATABASE_PATH` ([#41](https://github.com/w3hc/avventura-v3/issues/41)).
@@ -31,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Balances belong to the story's creator (`creatorAddress`) instead of the story: one balance per address, charged by every story it owns. Stories without a `creatorAddress` belong to `OWNER_ADDRESS`. Ledger rows keep the story they were charged for ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
+- Story creation is priced from the tokens it used, written to `costs.json` and charged to the creator, even when the response is not a valid story ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
+- On startup, each story's balance moves to its owner as a pair of `adjustment` ledger rows, keeping the total; a story whose balance is already 0 is skipped, so restarting moves nothing ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
+- A new address opens its balance at 100, instead of each new story ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
 - `POST /start`, `POST /move` and `POST /stories/credits` read and update the story's balance in the database instead of its `credits` key in `stories/stories.json`. New stories open their balance at 100 in the database ([#41](https://github.com/w3hc/avventura-v3/issues/41)).
 - `POST /stories/edit` returns 403 unless the signer is the story's `creatorAddress`, and ignores updates to `creatorAddress`, `credits`, `sessions`, `requests` and `created_at` ([#48](https://github.com/w3hc/avventura-v3/issues/48)).
 - Costs, `credits`, `spent` and `costs.json` are in euros, priced from the current rates instead of hardcoded USD rates. Existing balances are kept as they are ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
@@ -45,4 +53,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
+- `POST /stories/credits`, replaced by `POST /credits` ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
+- `pnpm credits:migrate` and `scripts/migrate-credits.mts`: the startup migration imports a story's `credits` key when it has no balance yet ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
 - `pnpm credits:init` and `scripts/init-credits.mts`, replaced by `pnpm credits:migrate` ([#41](https://github.com/w3hc/avventura-v3/issues/41)).

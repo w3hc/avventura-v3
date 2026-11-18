@@ -16,7 +16,7 @@ import { join } from 'path';
 import { randomBytes } from 'crypto';
 import { assertCreditsPassword } from './credits-password';
 import { CreditsService } from './credits/credits.service';
-import { PricingService } from './pricing/pricing.service';
+import { PricingService, TokenUsage } from './pricing/pricing.service';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -961,6 +961,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     creatorAddress: string,
   ): Promise<StoryData> {
     this.logger.log(`Creating new story from prompt: ${prompt}`);
+    const owner = this.assertCredits(creatorAddress.toLowerCase());
 
     // Read the instruction file
     let instructions: string;
@@ -1034,108 +1035,118 @@ ${ENDING_RULE}${playerNameReminder}`;
 
       const data = (await response.json()) as {
         content: { type: string; text: string }[];
+        usage?: TokenUsage;
       };
 
-      if (!data.content || data.content.length === 0) {
-        this.logger.error('Invalid API response: no content returned');
-        throw new HttpException(
-          'Invalid response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      const assistantMessage = data.content[0]?.text ?? '';
-
-      if (!assistantMessage) {
-        this.logger.warn('Empty assistant message in API response');
-        throw new HttpException(
-          'Empty response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      this.logger.log(
-        `Successfully received AI response (${assistantMessage.length} chars)`,
-      );
-
-      // Strip markdown code blocks if present
-      let jsonString = assistantMessage.trim();
-      if (jsonString.startsWith('```')) {
-        jsonString = jsonString
-          .replace(/^```(?:json)?\n/, '')
-          .replace(/\n```$/, '');
-      }
-
-      // Parse the AI response
-      let newStory: Omit<StoryData, 'created_at' | 'updated_at' | 'is_active'>;
+      // The call is paid whether or not its response makes a story
+      const cost = data.usage
+        ? this.pricingService.costEur(MODEL, data.usage)
+        : 0;
+      let slug: string | undefined;
       try {
-        newStory = JSON.parse(jsonString) as Omit<
+        if (!data.content || data.content.length === 0) {
+          this.logger.error('Invalid API response: no content returned');
+          throw new HttpException(
+            'Invalid response from AI service',
+            HttpStatus.BAD_GATEWAY,
+          );
+        }
+
+        const assistantMessage = data.content[0]?.text ?? '';
+
+        if (!assistantMessage) {
+          this.logger.warn('Empty assistant message in API response');
+          throw new HttpException(
+            'Empty response from AI service',
+            HttpStatus.BAD_GATEWAY,
+          );
+        }
+
+        this.logger.log(
+          `Successfully received AI response (${assistantMessage.length} chars)`,
+        );
+
+        // Strip markdown code blocks if present
+        let jsonString = assistantMessage.trim();
+        if (jsonString.startsWith('```')) {
+          jsonString = jsonString
+            .replace(/^```(?:json)?\n/, '')
+            .replace(/\n```$/, '');
+        }
+
+        // Parse the AI response
+        let newStory: Omit<
           StoryData,
           'created_at' | 'updated_at' | 'is_active'
         >;
-      } catch (parseError) {
-        this.logger.error(
-          `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
-        );
-        this.logger.debug(`AI response was: ${assistantMessage}`);
-        throw new HttpException(
-          'Invalid JSON response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
+        try {
+          newStory = JSON.parse(jsonString) as Omit<
+            StoryData,
+            'created_at' | 'updated_at' | 'is_active'
+          >;
+          slug = newStory.slug;
+        } catch (parseError) {
+          this.logger.error(
+            `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
+          );
+          this.logger.debug(`AI response was: ${assistantMessage}`);
+          throw new HttpException(
+            'Invalid JSON response from AI service',
+            HttpStatus.BAD_GATEWAY,
+          );
+        }
+
+        // Read existing stories
+        const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+        let stories: StoryData[] = [];
+        try {
+          const storiesData = readFileSync(storiesPath, 'utf-8');
+          stories = JSON.parse(storiesData) as StoryData[];
+        } catch (error) {
+          this.logger.error(
+            `Failed to read stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+          throw new HttpException(
+            'Failed to read stories file',
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
+
+        // Create complete story entry with metadata
+        const completeStory: StoryData = {
+          ...newStory,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          is_active: true,
+          sessions: 0,
+          requests: 0,
+          creatorAddress,
+        };
+
+        // Add the new story to the array
+        stories.push(completeStory);
+
+        // Write back to the file
+        try {
+          writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
+          this.logger.log(
+            `Successfully added story with slug: ${completeStory.slug}`,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to write stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+          throw new HttpException(
+            'Failed to save story',
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
+
+        return completeStory;
+      } finally {
+        this.writeCost(`story:${slug ?? 'unparsed'}`, cost);
+        this.chargeOwner(owner, cost, slug);
       }
-
-      // Read existing stories
-      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
-      let stories: StoryData[] = [];
-      try {
-        const storiesData = readFileSync(storiesPath, 'utf-8');
-        stories = JSON.parse(storiesData) as StoryData[];
-      } catch (error) {
-        this.logger.error(
-          `Failed to read stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        throw new HttpException(
-          'Failed to read stories file',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-
-      // Create complete story entry with metadata
-      const completeStory: StoryData = {
-        ...newStory,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        is_active: true,
-        sessions: 0,
-        requests: 0,
-        creatorAddress,
-      };
-
-      // Add the new story to the array
-      stories.push(completeStory);
-
-      // Write back to the file
-      try {
-        writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
-        this.logger.log(
-          `Successfully added story with slug: ${completeStory.slug}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to write stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        throw new HttpException(
-          'Failed to save story',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-      this.creditsService.open(
-        completeStory.slug,
-        DEFAULT_CREDITS,
-        completeStory.slug,
-      );
-
-      return completeStory;
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;

@@ -658,6 +658,17 @@ describe('AppController', () => {
     const readStories = () =>
       JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
 
+    // costs.json is resolved before process.cwd() is mocked
+    const mockWriteCost = () =>
+      jest
+        .spyOn(
+          appController['appService'] as unknown as {
+            writeCost: (id: string, cost: number) => void;
+          },
+          'writeCost',
+        )
+        .mockImplementation(() => undefined);
+
     beforeEach(() => {
       dir = mkdtempSync(join(tmpdir(), 'avventura-'));
       mkdirSync(join(dir, 'stories'));
@@ -767,6 +778,8 @@ describe('AppController', () => {
         ),
       );
 
+      const writeCost = mockWriteCost();
+
       const story = await appController['appService'].createStory(
         'A prompt',
         CREATOR,
@@ -777,7 +790,50 @@ describe('AppController', () => {
         creatorAddress: CREATOR,
       });
       expect(readStories()[2]).not.toHaveProperty('credits');
-      expect(app.get(CreditsService).balance('new-story')).toBe(100);
+
+      const credits = app.get(CreditsService);
+      const { 'new-story': spent } = credits.spentByStory(['new-story']);
+      expect(spent).toBeGreaterThan(0);
+      expect(credits.balance('new-story')).toBeNull();
+      expect(credits.balance(CREATOR)).toBeCloseTo(100 - spent, 6);
+      expect(writeCost).toHaveBeenCalledWith(
+        'story:new-story',
+        expect.closeTo(spent, 6),
+      );
+    });
+
+    it('refuses to create a story with 402 when the creator is out of credits', async () => {
+      process.env.ANTHROPIC_API_KEY = 'test';
+      app.get(CreditsService).open(CREATOR, 0);
+      const fetchSpy = jest.spyOn(global, 'fetch');
+
+      await expect(
+        appController['appService'].createStory('A prompt', CREATOR),
+      ).rejects.toMatchObject({ status: 402, message: 'Not enough credits' });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('charges the creator for a response that is not a story', async () => {
+      writeFileSync(join(dir, 'avventura-edit-instruction-file.md'), 'Rules');
+      process.env.ANTHROPIC_API_KEY = 'test';
+      jest.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: 'not json' }],
+            usage: { input_tokens: 1000, output_tokens: 1000 },
+          }),
+        ),
+      );
+      const writeCost = mockWriteCost();
+
+      await expect(
+        appController['appService'].createStory('A prompt', CREATOR),
+      ).rejects.toMatchObject({ status: 502 });
+      expect(app.get(CreditsService).balance(CREATOR)).toBeLessThan(100);
+      expect(writeCost).toHaveBeenCalledWith(
+        'story:unparsed',
+        expect.any(Number),
+      );
     });
   });
 

@@ -16,7 +16,7 @@ import { join } from 'path';
 import { randomBytes } from 'crypto';
 import { assertCreditsPassword } from './credits-password';
 import { CreditsService } from './credits/credits.service';
-import { PricingService } from './pricing/pricing.service';
+import { PricingService, TokenUsage } from './pricing/pricing.service';
 
 interface Message {
   role: 'system' | 'user' | 'assistant';
@@ -125,6 +125,12 @@ export interface StoryData {
   creatorAddress?: string;
 }
 
+export interface Me {
+  address: string;
+  balance: number;
+  stories: { slug: string; title: string; spent: number }[];
+}
+
 const PROTECTED_STORY_FIELDS: readonly string[] = [
   'creatorAddress',
   'credits',
@@ -149,6 +155,39 @@ export class AppService implements OnModuleInit {
     if (!existsSync(this.gamesDir)) {
       this.logger.log('games directory not found, creating it');
       mkdirSync(this.gamesDir, { recursive: true });
+    }
+    this.moveStoryBalances();
+  }
+
+  // Moves each story's balance to its owner, once
+  private moveStoryBalances(): void {
+    const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+    if (!existsSync(storiesPath)) {
+      return;
+    }
+    const stories = JSON.parse(
+      readFileSync(storiesPath, 'utf-8'),
+    ) as StoryData[];
+    const ownerless: string[] = [];
+    for (const story of stories) {
+      const owner = this.ownerOf(story);
+      if (!owner) {
+        ownerless.push(story.slug);
+        continue;
+      }
+      const moved = this.creditsService.moveStoryBalance(
+        story.slug,
+        owner,
+        story.credits ?? DEFAULT_CREDITS,
+      );
+      if (moved !== 0) {
+        this.logger.log(`Moved €${moved} from story ${story.slug} to ${owner}`);
+      }
+    }
+    if (ownerless.length > 0) {
+      this.logger.warn(
+        `OWNER_ADDRESS is not set: ${ownerless.length} stories without a creatorAddress keep their balance and can't be played`,
+      );
     }
   }
 
@@ -224,39 +263,46 @@ export class AppService implements OnModuleInit {
     }
   }
 
-  // A story without a balance yet opens one from its legacy credits key
-  private storyBalance(story: StoryData): number {
-    return this.creditsService.open(
-      story.slug,
-      story.credits ?? DEFAULT_CREDITS,
-      story.slug,
-    );
+  private ownerOf(story: StoryData): string | null {
+    const owner = story.creatorAddress ?? process.env.OWNER_ADDRESS;
+    return owner ? owner.toLowerCase() : null;
   }
 
-  private assertCredits(slug: string, credits: number): void {
-    if (credits <= 0) {
-      this.logger.warn(`Story ${slug} is out of credits (€${credits})`);
+  // Returns the owner to charge, opening a new owner at the default credits
+  private assertCredits(owner: string | null, slug?: string): string {
+    const credits =
+      owner === null ? 0 : this.creditsService.open(owner, DEFAULT_CREDITS);
+    if (owner === null || credits <= 0) {
+      this.logger.warn(
+        `${owner ?? `Story ${slug}`} is out of credits (€${credits})`,
+      );
       throw new HttpException(
         'Not enough credits',
         HttpStatus.PAYMENT_REQUIRED,
       );
     }
+    return owner;
   }
 
-  private chargeStory(slug: string, gameId: string, cost: number): void {
+  private chargeOwner(
+    owner: string,
+    cost: number,
+    story?: string,
+    gameId?: string,
+  ): void {
     try {
-      const credits = this.creditsService.charge(slug, {
-        story: slug,
+      const credits = this.creditsService.charge(owner, {
+        story,
         game: gameId,
         llmCost: roundEur(cost),
         amount: roundEur(cost),
       });
       this.logger.debug(
-        `Charged €${roundEur(cost)} to story ${slug}, credits left: €${credits}`,
+        `Charged €${roundEur(cost)} to ${owner} for story ${story}, credits left: €${credits}`,
       );
     } catch (error) {
       this.logger.error(
-        `Failed to charge story ${slug}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to charge ${owner} for story ${story}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -356,7 +402,7 @@ export class AppService implements OnModuleInit {
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-    this.assertCredits(story, this.storyBalance(storyData));
+    const owner = this.assertCredits(this.ownerOf(storyData), story);
 
     // Use prompt caching for static story instructions (cache_control)
     const cachedStoryInstructions = `# INSTRUCTIONS FOR THE MULTILINGUAL ADVENTURE
@@ -490,7 +536,7 @@ ${ENDING_RULE}${playerNameReminder}`;
 
       this.writeGame(newGame);
       this.writeCost(newGame.id, totalCost);
-      this.chargeStory(story, newGame.id, totalCost);
+      this.chargeOwner(owner, totalCost, story, newGame.id);
 
       this.logger.log(`Created new game with ID: ${newGame.id}`);
       return newGame;
@@ -921,6 +967,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     creatorAddress: string,
   ): Promise<StoryData> {
     this.logger.log(`Creating new story from prompt: ${prompt}`);
+    const owner = this.assertCredits(creatorAddress.toLowerCase());
 
     // Read the instruction file
     let instructions: string;
@@ -994,108 +1041,118 @@ ${ENDING_RULE}${playerNameReminder}`;
 
       const data = (await response.json()) as {
         content: { type: string; text: string }[];
+        usage?: TokenUsage;
       };
 
-      if (!data.content || data.content.length === 0) {
-        this.logger.error('Invalid API response: no content returned');
-        throw new HttpException(
-          'Invalid response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      const assistantMessage = data.content[0]?.text ?? '';
-
-      if (!assistantMessage) {
-        this.logger.warn('Empty assistant message in API response');
-        throw new HttpException(
-          'Empty response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
-      }
-
-      this.logger.log(
-        `Successfully received AI response (${assistantMessage.length} chars)`,
-      );
-
-      // Strip markdown code blocks if present
-      let jsonString = assistantMessage.trim();
-      if (jsonString.startsWith('```')) {
-        jsonString = jsonString
-          .replace(/^```(?:json)?\n/, '')
-          .replace(/\n```$/, '');
-      }
-
-      // Parse the AI response
-      let newStory: Omit<StoryData, 'created_at' | 'updated_at' | 'is_active'>;
+      // The call is paid whether or not its response makes a story
+      const cost = data.usage
+        ? this.pricingService.costEur(MODEL, data.usage)
+        : 0;
+      let slug: string | undefined;
       try {
-        newStory = JSON.parse(jsonString) as Omit<
+        if (!data.content || data.content.length === 0) {
+          this.logger.error('Invalid API response: no content returned');
+          throw new HttpException(
+            'Invalid response from AI service',
+            HttpStatus.BAD_GATEWAY,
+          );
+        }
+
+        const assistantMessage = data.content[0]?.text ?? '';
+
+        if (!assistantMessage) {
+          this.logger.warn('Empty assistant message in API response');
+          throw new HttpException(
+            'Empty response from AI service',
+            HttpStatus.BAD_GATEWAY,
+          );
+        }
+
+        this.logger.log(
+          `Successfully received AI response (${assistantMessage.length} chars)`,
+        );
+
+        // Strip markdown code blocks if present
+        let jsonString = assistantMessage.trim();
+        if (jsonString.startsWith('```')) {
+          jsonString = jsonString
+            .replace(/^```(?:json)?\n/, '')
+            .replace(/\n```$/, '');
+        }
+
+        // Parse the AI response
+        let newStory: Omit<
           StoryData,
           'created_at' | 'updated_at' | 'is_active'
         >;
-      } catch (parseError) {
-        this.logger.error(
-          `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
-        );
-        this.logger.debug(`AI response was: ${assistantMessage}`);
-        throw new HttpException(
-          'Invalid JSON response from AI service',
-          HttpStatus.BAD_GATEWAY,
-        );
+        try {
+          newStory = JSON.parse(jsonString) as Omit<
+            StoryData,
+            'created_at' | 'updated_at' | 'is_active'
+          >;
+          slug = newStory.slug;
+        } catch (parseError) {
+          this.logger.error(
+            `Failed to parse AI response: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`,
+          );
+          this.logger.debug(`AI response was: ${assistantMessage}`);
+          throw new HttpException(
+            'Invalid JSON response from AI service',
+            HttpStatus.BAD_GATEWAY,
+          );
+        }
+
+        // Read existing stories
+        const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+        let stories: StoryData[] = [];
+        try {
+          const storiesData = readFileSync(storiesPath, 'utf-8');
+          stories = JSON.parse(storiesData) as StoryData[];
+        } catch (error) {
+          this.logger.error(
+            `Failed to read stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+          throw new HttpException(
+            'Failed to read stories file',
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
+
+        // Create complete story entry with metadata
+        const completeStory: StoryData = {
+          ...newStory,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          is_active: true,
+          sessions: 0,
+          requests: 0,
+          creatorAddress,
+        };
+
+        // Add the new story to the array
+        stories.push(completeStory);
+
+        // Write back to the file
+        try {
+          writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
+          this.logger.log(
+            `Successfully added story with slug: ${completeStory.slug}`,
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to write stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
+          throw new HttpException(
+            'Failed to save story',
+            HttpStatus.INTERNAL_SERVER_ERROR,
+          );
+        }
+
+        return completeStory;
+      } finally {
+        this.writeCost(`story:${slug ?? 'unparsed'}`, cost);
+        this.chargeOwner(owner, cost, slug);
       }
-
-      // Read existing stories
-      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
-      let stories: StoryData[] = [];
-      try {
-        const storiesData = readFileSync(storiesPath, 'utf-8');
-        stories = JSON.parse(storiesData) as StoryData[];
-      } catch (error) {
-        this.logger.error(
-          `Failed to read stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        throw new HttpException(
-          'Failed to read stories file',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-
-      // Create complete story entry with metadata
-      const completeStory: StoryData = {
-        ...newStory,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        is_active: true,
-        sessions: 0,
-        requests: 0,
-        creatorAddress,
-      };
-
-      // Add the new story to the array
-      stories.push(completeStory);
-
-      // Write back to the file
-      try {
-        writeFileSync(storiesPath, JSON.stringify(stories, null, 4), 'utf-8');
-        this.logger.log(
-          `Successfully added story with slug: ${completeStory.slug}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `Failed to write stories file: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        );
-        throw new HttpException(
-          'Failed to save story',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-      this.creditsService.open(
-        completeStory.slug,
-        DEFAULT_CREDITS,
-        completeStory.slug,
-      );
-
-      return completeStory;
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -1186,20 +1243,52 @@ ${ENDING_RULE}${playerNameReminder}`;
     return updatedStory;
   }
 
+  getMe(address: string): Me {
+    const owner = address.toLowerCase();
+    const stories = this.readAllStories().filter(
+      (story) => this.ownerOf(story) === owner,
+    );
+    const spent = this.creditsService.spentByStory(
+      stories.map((story) => story.slug),
+    );
+    return {
+      address: owner,
+      balance: this.creditsService.balance(owner) ?? DEFAULT_CREDITS,
+      stories: stories.map((story) => ({
+        slug: story.slug,
+        title: story.title,
+        spent: spent[story.slug],
+      })),
+    };
+  }
+
+  private readAllStories(): StoryData[] {
+    try {
+      const storiesPath = join(process.cwd(), 'stories', 'stories.json');
+      return JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
+    } catch (error) {
+      this.logger.error(
+        `Failed to load stories: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw new HttpException(
+        'Failed to load stories',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
   addCredits(
-    slug: string,
+    address: string,
     amount: number,
     password: string,
   ): { added: number; credits: number } {
-    assertCreditsPassword(password, `credits top-up for story ${slug}`);
+    const owner = address.toLowerCase();
+    assertCreditsPassword(password, `credits top-up for ${owner}`);
 
-    const story = this.getStory(slug);
-    this.storyBalance(story);
+    this.creditsService.open(owner, DEFAULT_CREDITS);
     const added = roundEur(amount);
-    const credits = this.creditsService.topUp(slug, added, slug);
-    this.logger.log(
-      `Added €${added} to story ${slug}, credits now: €${credits}`,
-    );
+    const credits = this.creditsService.topUp(owner, added);
+    this.logger.log(`Added €${added} to ${owner}, credits now: €${credits}`);
     return { added, credits };
   }
 
@@ -1295,7 +1384,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }
-    this.assertCredits(game.story, this.storyBalance(storyData));
+    const owner = this.assertCredits(this.ownerOf(storyData), game.story);
 
     // Use prompt caching for static story instructions (cache_control)
     const cachedStoryInstructions = `# STORY INSTRUCTIONS
@@ -1403,7 +1492,7 @@ ${ENDING_RULE}${playerNameReminder}`;
         totalCost,
       );
       this.writeCost(gameId, totalCost);
-      this.chargeStory(game.story, gameId, totalCost);
+      this.chargeOwner(owner, totalCost, game.story, gameId);
 
       return {
         previously: aiResponse.previously,

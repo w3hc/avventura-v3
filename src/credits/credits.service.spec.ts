@@ -162,4 +162,71 @@ describe('CreditsService', () => {
     expect(ledger('story')).toHaveLength(201);
     expect(ledgerSum('story')).toBe(8);
   }, 30_000);
+
+  it('moves a story balance to its owner once, keeping the total', () => {
+    credits.open('story', 10, 'story');
+    credits.charge('story', { story: 'story', llmCost: 1, amount: 1 });
+
+    expect(credits.moveStoryBalance('story', '0xabc', 100)).toBe(9);
+    expect(credits.moveStoryBalance('story', '0xabc', 100)).toBe(0);
+    expect(credits.balance('story')).toBe(0);
+    expect(credits.balance('0xabc')).toBe(9);
+    expect(ledger('0xabc')).toEqual([
+      {
+        owner: '0xabc',
+        story: 'story',
+        game: null,
+        kind: 'adjustment',
+        llm_cost: null,
+        amount: 9_000_000,
+      },
+    ]);
+    expect(ledgerSum('story') + ledgerSum('0xabc')).toBe(9);
+  });
+
+  it('opens a story balance at the initial amount before moving it', () => {
+    expect(credits.moveStoryBalance('story', '0xabc', 100)).toBe(100);
+    expect(credits.balance('story')).toBe(0);
+    expect(credits.balance('0xabc')).toBe(100);
+    expect(ledger('story').map((row) => row.amount)).toEqual([
+      100_000_000, -100_000_000,
+    ]);
+  });
+
+  it('opens the owner balance even when the story balance is 0', () => {
+    credits.open('story', 0, 'story');
+
+    expect(credits.moveStoryBalance('story', '0xabc', 100)).toBe(0);
+    expect(credits.balance('0xabc')).toBe(0);
+    expect(ledger('0xabc')).toEqual([]);
+  });
+
+  it('moves a negative story balance too', () => {
+    credits.open('story', 1, 'story');
+    credits.charge('story', { story: 'story', llmCost: 3, amount: 3 });
+    credits.open('0xabc', 10);
+
+    expect(credits.moveStoryBalance('story', '0xabc', 100)).toBe(-2);
+    expect(credits.balance('0xabc')).toBe(8);
+  });
+
+  it('sums the LLM debits of each story across owners', () => {
+    credits.open('story', 10, 'story');
+    credits.charge('story', { story: 'story', llmCost: 1, amount: 1 });
+    credits.moveStoryBalance('story', '0xabc', 100);
+    credits.charge('0xabc', {
+      story: 'story',
+      game: 'G',
+      llmCost: 0.5,
+      amount: 0.5,
+    });
+    credits.charge('0xabc', { story: 'other', llmCost: 2, amount: 2 });
+    credits.topUp('0xabc', 5, 'story');
+
+    expect(credits.spentByStory(['story', 'other', 'unplayed'])).toEqual({
+      story: 1.5,
+      other: 2,
+      unplayed: 0,
+    });
+  });
 });

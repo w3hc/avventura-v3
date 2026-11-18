@@ -658,6 +658,17 @@ describe('AppController', () => {
     const readStories = () =>
       JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
 
+    // costs.json is resolved before process.cwd() is mocked
+    const mockWriteCost = () =>
+      jest
+        .spyOn(
+          appController['appService'] as unknown as {
+            writeCost: (id: string, cost: number) => void;
+          },
+          'writeCost',
+        )
+        .mockImplementation(() => undefined);
+
     beforeEach(() => {
       dir = mkdtempSync(join(tmpdir(), 'avventura-'));
       mkdirSync(join(dir, 'stories'));
@@ -767,6 +778,8 @@ describe('AppController', () => {
         ),
       );
 
+      const writeCost = mockWriteCost();
+
       const story = await appController['appService'].createStory(
         'A prompt',
         CREATOR,
@@ -777,7 +790,50 @@ describe('AppController', () => {
         creatorAddress: CREATOR,
       });
       expect(readStories()[2]).not.toHaveProperty('credits');
-      expect(app.get(CreditsService).balance('new-story')).toBe(100);
+
+      const credits = app.get(CreditsService);
+      const { 'new-story': spent } = credits.spentByStory(['new-story']);
+      expect(spent).toBeGreaterThan(0);
+      expect(credits.balance('new-story')).toBeNull();
+      expect(credits.balance(CREATOR)).toBeCloseTo(100 - spent, 6);
+      expect(writeCost).toHaveBeenCalledWith(
+        'story:new-story',
+        expect.closeTo(spent, 6),
+      );
+    });
+
+    it('refuses to create a story with 402 when the creator is out of credits', async () => {
+      process.env.ANTHROPIC_API_KEY = 'test';
+      app.get(CreditsService).open(CREATOR, 0);
+      const fetchSpy = jest.spyOn(global, 'fetch');
+
+      await expect(
+        appController['appService'].createStory('A prompt', CREATOR),
+      ).rejects.toMatchObject({ status: 402, message: 'Not enough credits' });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('charges the creator for a response that is not a story', async () => {
+      writeFileSync(join(dir, 'avventura-edit-instruction-file.md'), 'Rules');
+      process.env.ANTHROPIC_API_KEY = 'test';
+      jest.spyOn(global, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: 'not json' }],
+            usage: { input_tokens: 1000, output_tokens: 1000 },
+          }),
+        ),
+      );
+      const writeCost = mockWriteCost();
+
+      await expect(
+        appController['appService'].createStory('A prompt', CREATOR),
+      ).rejects.toMatchObject({ status: 502 });
+      expect(app.get(CreditsService).balance(CREATOR)).toBeLessThan(100);
+      expect(writeCost).toHaveBeenCalledWith(
+        'story:unparsed',
+        expect.any(Number),
+      );
     });
   });
 
@@ -1061,7 +1117,12 @@ describe('AppController', () => {
 
     const internals = (service: AppService) =>
       service as unknown as {
-        chargeStory: (slug: string, gameId: string, cost: number) => void;
+        chargeOwner: (
+          owner: string,
+          cost: number,
+          story?: string,
+          gameId?: string,
+        ) => void;
         generateSteps: (...args: unknown[]) => Promise<unknown>;
         readGame: (gameId: string) => Game | null;
         writeGame: (game: Game) => void;
@@ -1077,7 +1138,11 @@ describe('AppController', () => {
     const readStories = () =>
       JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
 
-    const balance = (slug: string) => app.get(CreditsService).balance(slug);
+    const balance = (owner: string) => app.get(CreditsService).balance(owner);
+
+    const OWNER = '0xAbC0000000000000000000000000000000000001';
+    const BROKE = '0x3333333333333333333333333333333333333333';
+    const OVERDRAWN = '0x4444444444444444444444444444444444444444';
 
     const step: Step = { desc: 'A step', options: ['A'], action: 'continue' };
 
@@ -1088,71 +1153,149 @@ describe('AppController', () => {
       writeFileSync(
         storiesPath,
         JSON.stringify([
-          { slug: 'funded', credits: 10 },
+          { slug: 'funded', credits: 10, creatorAddress: CREATOR },
+          { slug: 'second', credits: 5, creatorAddress: CREATOR },
           { slug: 'legacy' },
-          { slug: 'broke', credits: 0 },
-          { slug: 'overdrawn', credits: -1 },
+          { slug: 'broke', credits: 0, creatorAddress: BROKE },
+          { slug: 'overdrawn', credits: -1, creatorAddress: OVERDRAWN },
         ]),
       );
       jest.spyOn(process, 'cwd').mockReturnValue(dir);
       process.env.CREDITS_PASSWORD = password;
+      process.env.OWNER_ADDRESS = OWNER;
+      appController['appService'].onModuleInit();
     });
 
     afterEach(() => {
       jest.restoreAllMocks();
       delete process.env.CREDITS_PASSWORD;
+      delete process.env.OWNER_ADDRESS;
     });
 
-    it('should add credits and return the new balance', () => {
+    it('should move each story balance to its owner at startup', () => {
+      expect(balance(CREATOR)).toBe(15);
+      expect(balance(OWNER.toLowerCase())).toBe(100);
+      expect(balance(BROKE)).toBe(0);
+      expect(balance(OVERDRAWN)).toBe(-1);
+      for (const slug of ['funded', 'second', 'legacy', 'broke', 'overdrawn']) {
+        expect(balance(slug)).toBe(0);
+      }
+    });
+
+    it('should not move anything on a second startup', () => {
+      appController['appService'].onModuleInit();
+      expect(balance(CREATOR)).toBe(15);
+      expect(balance(OWNER.toLowerCase())).toBe(100);
+    });
+
+    it('should leave stories without a creator unplayable without OWNER_ADDRESS', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'avventura-'));
+      mkdirSync(join(dir, 'stories'));
+      writeFileSync(
+        join(dir, 'stories', 'stories.json'),
+        JSON.stringify([{ slug: 'orphan', credits: 10 }]),
+      );
+      jest.spyOn(process, 'cwd').mockReturnValue(dir);
+      delete process.env.OWNER_ADDRESS;
+      appController['appService'].onModuleInit();
+
+      expect(balance('orphan')).toBeNull();
+      await expect(
+        appController['appService'].start('orphan', 'en'),
+      ).rejects.toMatchObject({ status: 402 });
+    });
+
+    it("should return the signer's balance and stories with their spend", () => {
+      const service = internals(appController['appService']);
+      service.chargeOwner(CREATOR, 0.25, 'funded', 'GAME');
+      service.chargeOwner(CREATOR, 0.5, 'funded', 'GAME');
+
+      expect(
+        appController.getMe(CREATOR.toUpperCase().replace('0X', '0x')),
+      ).toEqual({
+        address: CREATOR,
+        balance: 14.25,
+        stories: [
+          { slug: 'funded', title: undefined, spent: 0.75 },
+          { slug: 'second', title: undefined, spent: 0 },
+        ],
+      });
+    });
+
+    it('should list stories without a creator under OWNER_ADDRESS', () => {
+      expect(appController.getMe(OWNER).stories).toEqual([
+        { slug: 'legacy', title: undefined, spent: 0 },
+      ]);
+    });
+
+    it('should return the default balance for a new address', () => {
+      expect(appController.getMe(STRANGER)).toEqual({
+        address: STRANGER,
+        balance: 100,
+        stories: [],
+      });
+      expect(balance(STRANGER)).toBeNull();
+    });
+
+    it('should add credits to an address and return the new balance', () => {
       const result = appController.addCredits({
-        slug: 'funded',
+        address: CREATOR,
         amount: 5,
         password,
       });
-      expect(result).toEqual({ added: 5, credits: 15 });
-      expect(balance('funded')).toBe(15);
+      expect(result).toEqual({ added: 5, credits: 20 });
+      expect(balance(CREATOR)).toBe(20);
       expect(readStories()[0].credits).toBe(10);
     });
 
-    it('should start a story without credits from the default', () => {
+    it('should open a new address at the default before adding credits', () => {
       const result = appController.addCredits({
-        slug: 'legacy',
+        address: STRANGER.toUpperCase().replace('0X', '0x'),
         amount: 5,
         password,
       });
       expect(result).toEqual({ added: 5, credits: 105 });
-      expect(balance('legacy')).toBe(105);
+      expect(balance(STRANGER)).toBe(105);
     });
 
     it('should reject a wrong password', () => {
       expect(() =>
-        appController.addCredits({ slug: 'funded', amount: 5, password: 'x' }),
+        appController.addCredits({
+          address: STRANGER,
+          amount: 5,
+          password: 'x',
+        }),
       ).toThrow('Invalid password');
-      expect(balance('funded')).toBeNull();
+      expect(balance(STRANGER)).toBeNull();
     });
 
     it('should refuse top-ups when no password is configured', () => {
       delete process.env.CREDITS_PASSWORD;
       expect(() =>
-        appController.addCredits({ slug: 'funded', amount: 5, password }),
+        appController.addCredits({ address: CREATOR, amount: 5, password }),
       ).toThrow('CREDITS_PASSWORD is not configured');
-    });
-
-    it('should return 404 for an unknown story', () => {
-      expect(() =>
-        appController.addCredits({ slug: 'missing', amount: 5, password }),
-      ).toThrow('Story not found');
-      expect(balance('missing')).toBeNull();
     });
 
     it.each([0, -5, 'five'])('should reject amount %p', async (amount) => {
       const dto = plainToInstance(AddCreditsDto, {
-        slug: 'funded',
+        address: CREATOR,
         amount,
         password,
       });
       expect(await validate(dto)).not.toHaveLength(0);
     });
+
+    it.each(['funded', '0x123', ''])(
+      'should reject address %p',
+      async (address) => {
+        const dto = plainToInstance(AddCreditsDto, {
+          address,
+          amount: 5,
+          password,
+        });
+        expect(await validate(dto)).not.toHaveLength(0);
+      },
+    );
 
     it.each(['broke', 'overdrawn'])(
       'should refuse to start %s with 402',
@@ -1239,15 +1382,14 @@ describe('AppController', () => {
       expect(cost).toBeCloseTo((2 + 2.5 + 0.2 + 10) * 0.5);
     });
 
-    it('should deduct the request cost from the story', () => {
+    it('should deduct the request cost from the owner and keep the story', () => {
       const service = internals(appController['appService']);
-      const credits = app.get(CreditsService);
-      credits.open('funded', 10);
-      credits.open('legacy', 100);
-      service.chargeStory('funded', 'GAME', 0.0123456);
-      service.chargeStory('legacy', 'GAME', 0.5);
-      expect(balance('funded')).toBe(9.987654);
-      expect(balance('legacy')).toBe(99.5);
+      service.chargeOwner(CREATOR, 0.0123456, 'funded', 'GAME');
+      service.chargeOwner(CREATOR, 0.5, 'second', 'GAME');
+      expect(balance(CREATOR)).toBe(14.487654);
+      expect(
+        app.get(CreditsService).spentByStory(['funded', 'second']),
+      ).toEqual({ funded: 0.012346, second: 0.5 });
     });
 
     it.each([

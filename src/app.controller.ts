@@ -25,6 +25,7 @@ import {
   IsArray,
   IsIn,
   IsPositive,
+  IsEthereumAddress,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -32,6 +33,7 @@ import {
   DIFFICULTIES,
   Difficulty,
   Game,
+  Me,
   Player,
   Step,
   StoryData,
@@ -184,12 +186,11 @@ class EditStoryDto {
 
 export class AddCreditsDto {
   @ApiProperty({
-    description: 'The slug of the story to top up',
-    example: 'montpellier',
+    description: 'The creator address to top up',
+    example: '0x1111111111111111111111111111111111111111',
   })
-  @IsString()
-  @IsNotEmpty()
-  slug: string;
+  @IsEthereumAddress()
+  address: string;
 
   @ApiProperty({
     description: 'The amount to add, in EUR',
@@ -270,6 +271,7 @@ export class AppController {
     status: 401,
     description: 'Invalid or missing SIWE signature',
   })
+  @ApiResponse({ status: 402, description: 'The creator is out of credits' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })
   async createStory(
@@ -278,6 +280,28 @@ export class AppController {
   ): Promise<StoryData> {
     this.logger.log('POST /stories endpoint called');
     return this.appService.createStory(body.prompt, creatorAddress);
+  }
+
+  @Get('me')
+  @UseGuards(SiweAuthGuard)
+  @ApiOperation({
+    summary: "The signer's address, balance (EUR) and stories with their spend",
+  })
+  @ApiHeader(SIWE_HEADERS[0])
+  @ApiHeader(SIWE_HEADERS[1])
+  @ApiResponse({
+    status: 200,
+    description:
+      'Address, balance and owned stories, each with its LLM spend in EUR',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid or missing SIWE signature',
+  })
+  @ApiResponse({ status: 500, description: 'Internal server error' })
+  getMe(@SiweAddress() address: string): Me {
+    this.logger.log('GET /me endpoint called');
+    return this.appService.getMe(address);
   }
 
   @Post('stories/edit')
@@ -314,10 +338,10 @@ export class AppController {
     );
   }
 
-  @Post('stories/credits')
+  @Post('credits')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Add credits (EUR) to a story',
+    summary: "Add credits (EUR) to a creator's balance",
   })
   @ApiBody({ type: AddCreditsDto })
   @ApiResponse({
@@ -326,11 +350,10 @@ export class AppController {
   })
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
   @ApiResponse({ status: 401, description: 'Invalid password' })
-  @ApiResponse({ status: 404, description: 'Story not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   addCredits(@Body() body: AddCreditsDto): { added: number; credits: number } {
-    this.logger.log('POST /stories/credits endpoint called');
-    return this.appService.addCredits(body.slug, body.amount, body.password);
+    this.logger.log('POST /credits endpoint called');
+    return this.appService.addCredits(body.address, body.amount, body.password);
   }
 
   @Post('start')
@@ -343,7 +366,10 @@ export class AppController {
     status: 201,
     description: 'New game created successfully',
   })
-  @ApiResponse({ status: 402, description: 'Story is out of credits' })
+  @ApiResponse({
+    status: 402,
+    description: "The story's creator is out of credits",
+  })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   async start(@Body() body?: StartDto): Promise<Game> {
     this.logger.log('POST /start endpoint called');
@@ -386,7 +412,10 @@ export class AppController {
     description: 'Updated game state with new story progression',
   })
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
-  @ApiResponse({ status: 402, description: 'Story is out of credits' })
+  @ApiResponse({
+    status: 402,
+    description: "The story's creator is out of credits",
+  })
   @ApiResponse({ status: 404, description: 'Game not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })

@@ -63,3 +63,6 @@ stories/stories.json
 notes/
 pricing/pricing.json
 pricing/archive/
+
+# SQLite
+data/

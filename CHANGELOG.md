@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Story balances and a ledger of every charge, top-up and adjustment are stored in SQLite with [better-sqlite3](https://github.com/WiseLibs/better-sqlite3), at `DATABASE_PATH` (default `data/avventura.db`, git-ignored). Each movement writes its ledger row and updates the balance in one transaction ([#41](https://github.com/w3hc/avventura-v3/issues/41)).
+- `pnpm credits:migrate` (`scripts/migrate-credits.mts`) imports each story's `credits` as an opening adjustment and removes the key from `stories/stories.json`; running it again changes nothing ([#41](https://github.com/w3hc/avventura-v3/issues/41)).
+- `.env.template` lists `DATABASE_PATH` ([#41](https://github.com/w3hc/avventura-v3/issues/41)).
 - `POST /stories` and `POST /stories/edit` require a SIWE signature in the `x-siwe-message` and `x-siwe-signature` headers, checked by `SiweAuthGuard` with [w3pk](https://www.npmjs.com/package/w3pk): chain, optional domain allow-list, expiration window, a statement bound to the request, the signature and a single-use nonce ([#48](https://github.com/w3hc/avventura-v3/issues/48)).
 - New stories record the signer as `creatorAddress` ([#48](https://github.com/w3hc/avventura-v3/issues/48)).
 - `.env.template` lists `SIWE_CHAIN_ID`, `SIWE_MAX_AGE_SECONDS` and `SIWE_ALLOWED_DOMAINS` ([#48](https://github.com/w3hc/avventura-v3/issues/48)).
@@ -28,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `POST /start`, `POST /move` and `POST /stories/credits` read and update the story's balance in the database instead of its `credits` key in `stories/stories.json`. New stories open their balance at 100 in the database ([#41](https://github.com/w3hc/avventura-v3/issues/41)).
 - `POST /stories/edit` returns 403 unless the signer is the story's `creatorAddress`, and ignores updates to `creatorAddress`, `credits`, `sessions`, `requests` and `created_at` ([#48](https://github.com/w3hc/avventura-v3/issues/48)).
 - Costs, `credits`, `spent` and `costs.json` are in euros, priced from the current rates instead of hardcoded USD rates. Existing balances are kept as they are ([#39](https://github.com/w3hc/avventura-v3/issues/39)).
 - The AI model is `claude-sonnet-5-5` with thinking off (`between_tools`), and costs are priced at its rates ([#33](https://github.com/w3hc/avventura-v3/issues/33)).
@@ -38,3 +42,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - NestJS 12 ships as ESM: Jest scripts run with `NODE_OPTIONS=--experimental-vm-modules`, and CI runs on Node 24 with the pnpm version from `packageManager` ([#27](https://github.com/w3hc/avventura-v3/issues/27)).
 - `tsconfig.json` follows TypeScript 6 defaults: `baseUrl` removed, `types` and `strict: false` set explicitly. The build keeps emitting to `dist/main.js` ([#27](https://github.com/w3hc/avventura-v3/issues/27)).
 - `notes/` is git-ignored ([#27](https://github.com/w3hc/avventura-v3/issues/27)).
+
+### Removed
+
+- `pnpm credits:init` and `scripts/init-credits.mts`, replaced by `pnpm credits:migrate` ([#41](https://github.com/w3hc/avventura-v3/issues/41)).

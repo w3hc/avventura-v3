@@ -51,17 +51,24 @@ In `short` mode, a `desc` over the limit triggers one regeneration; if it is sti
 
 ## Credits
 
-Each story in `stories/stories.json` has a `credits` balance in euros, set to `100` when the story is created. A story without the key counts as having `100`.
+Each story has a balance in euros, opened at `100` when the story is created. Balances live in a SQLite database at `DATABASE_PATH` (default `data/avventura.db`), created on startup with two tables:
 
-Every AI call made by `POST /start` and `POST /move` is priced in euros from the tokens it used (input, cache writes, cache reads and output, at the current `claude-sonnet-5-5` rates, see [Pricing](#pricing)). That amount is subtracted from the story's `credits` and added to the game's `spent` key in `games/<id>.json`. `POST /move` returns the game's `spent` total.
+- `balances`: one row per owner (for now, the story slug) with its current amount
+- `ledger`: one row per movement, with the owner, story, game, kind (`llm`, `topup` or `adjustment`), LLM cost, amount and date
 
-When a story's `credits` is `0` or below, `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
+Amounts are stored in micro-euros. Every charge and top-up writes its ledger row and updates the balance in a single transaction, so a balance always equals the sum of its ledger, even under concurrent requests.
 
-To give `100` credits to every story that has no `credits` key yet (existing balances are left unchanged):
+Every AI call made by `POST /start` and `POST /move` is priced in euros from the tokens it used (input, cache writes, cache reads and output, at the current `claude-sonnet-5-5` rates, see [Pricing](#pricing)). That amount is charged to the story as an `llm` ledger row and added to the game's `spent` key in `games/<id>.json`. `POST /move` returns the game's `spent` total.
+
+When a story's balance is `0` or below, `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
+
+To import the `credits` keys of `stories/stories.json` into the database, as an opening `adjustment` per story (`100` for a story without the key), then remove those keys from the file:
 
 ```bash
-pnpm credits:init
+pnpm credits:migrate
 ```
+
+Stories that already have a balance are skipped, so running it again changes nothing. A story still missing from the database when it's first played or topped up is opened the same way.
 
 Top up a story with `POST /stories/credits`:
 

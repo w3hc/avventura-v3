@@ -14,6 +14,7 @@ import {
   StoryData,
   TextLength,
 } from './app.service';
+import { CreditsService } from './credits/credits.service';
 import { PricingFile, PricingService } from './pricing/pricing.service';
 import * as modelsData from '../models-infomaniak.json';
 
@@ -21,15 +22,20 @@ const CREATOR = '0x1111111111111111111111111111111111111111';
 const STRANGER = '0x2222222222222222222222222222222222222222';
 
 describe('AppController', () => {
+  let app: TestingModule;
   let appController: AppController;
 
   beforeEach(async () => {
-    const app: TestingModule = await Test.createTestingModule({
+    app = await Test.createTestingModule({
       controllers: [AppController],
-      providers: [AppService, PricingService],
+      providers: [AppService, PricingService, CreditsService],
     }).compile();
 
     appController = app.get<AppController>(AppController);
+  });
+
+  afterEach(async () => {
+    await app.close();
   });
 
   describe('getModels', () => {
@@ -770,6 +776,8 @@ describe('AppController', () => {
         slug: 'new-story',
         creatorAddress: CREATOR,
       });
+      expect(readStories()[2]).not.toHaveProperty('credits');
+      expect(app.get(CreditsService).balance('new-story')).toBe(100);
     });
   });
 
@@ -1053,7 +1061,7 @@ describe('AppController', () => {
 
     const internals = (service: AppService) =>
       service as unknown as {
-        chargeStory: (slug: string, cost: number) => void;
+        chargeStory: (slug: string, gameId: string, cost: number) => void;
         generateSteps: (...args: unknown[]) => Promise<unknown>;
         readGame: (gameId: string) => Game | null;
         writeGame: (game: Game) => void;
@@ -1068,6 +1076,8 @@ describe('AppController', () => {
 
     const readStories = () =>
       JSON.parse(readFileSync(storiesPath, 'utf-8')) as StoryData[];
+
+    const balance = (slug: string) => app.get(CreditsService).balance(slug);
 
     const step: Step = { desc: 'A step', options: ['A'], action: 'continue' };
 
@@ -1100,7 +1110,8 @@ describe('AppController', () => {
         password,
       });
       expect(result).toEqual({ added: 5, credits: 15 });
-      expect(readStories()[0].credits).toBe(15);
+      expect(balance('funded')).toBe(15);
+      expect(readStories()[0].credits).toBe(10);
     });
 
     it('should start a story without credits from the default', () => {
@@ -1110,14 +1121,14 @@ describe('AppController', () => {
         password,
       });
       expect(result).toEqual({ added: 5, credits: 105 });
-      expect(readStories()[1].credits).toBe(105);
+      expect(balance('legacy')).toBe(105);
     });
 
     it('should reject a wrong password', () => {
       expect(() =>
         appController.addCredits({ slug: 'funded', amount: 5, password: 'x' }),
       ).toThrow('Invalid password');
-      expect(readStories()[0].credits).toBe(10);
+      expect(balance('funded')).toBeNull();
     });
 
     it('should refuse top-ups when no password is configured', () => {
@@ -1131,6 +1142,7 @@ describe('AppController', () => {
       expect(() =>
         appController.addCredits({ slug: 'missing', amount: 5, password }),
       ).toThrow('Story not found');
+      expect(balance('missing')).toBeNull();
     });
 
     it.each([0, -5, 'five'])('should reject amount %p', async (amount) => {
@@ -1228,11 +1240,14 @@ describe('AppController', () => {
     });
 
     it('should deduct the request cost from the story', () => {
-      internals(appController['appService']).chargeStory('funded', 0.0123456);
-      internals(appController['appService']).chargeStory('legacy', 0.5);
-      const [funded, legacy] = readStories();
-      expect(funded.credits).toBe(9.987654);
-      expect(legacy.credits).toBe(99.5);
+      const service = internals(appController['appService']);
+      const credits = app.get(CreditsService);
+      credits.open('funded', 10);
+      credits.open('legacy', 100);
+      service.chargeStory('funded', 'GAME', 0.0123456);
+      service.chargeStory('legacy', 'GAME', 0.5);
+      expect(balance('funded')).toBe(9.987654);
+      expect(balance('legacy')).toBe(99.5);
     });
 
     it.each([

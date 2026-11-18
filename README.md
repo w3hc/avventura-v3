@@ -56,7 +56,7 @@ Each story owner has one balance in euros, keyed by their lowercased address (th
 Balances live in a SQLite database at `DATABASE_PATH` (default `data/avventura.db`), created on startup with two tables:
 
 - `balances`: one row per owner with its current amount
-- `ledger`: one row per movement, with the owner, story, game, kind (`llm`, `topup` or `adjustment`), LLM cost, amount and date. An `llm` row's amount is the price charged, its LLM cost what the AI call cost, so the margin is their difference
+- `ledger`: one row per movement, with the owner, story, game, kind (`llm`, `topup` or `adjustment`), LLM cost, amount and date. An `llm` row's amount is the price charged, its LLM cost what the AI call cost, so the margin is their difference. A Stripe top-up's row also stores the `gross` paid, the Stripe `fee` and the `stripe_payment_intent`, and its amount is the net (see [Billing](#billing))
 
 Amounts are stored in micro-euros. Every charge and top-up writes its ledger row and updates the balance in a single transaction, so a balance always equals the sum of its ledger, even under concurrent requests.
 
@@ -88,6 +88,54 @@ The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an
 ```
 
 `spent` is the total of the story's `llm` charges in euros, service fee included.
+
+## Billing
+
+Creators top up their balance with [Stripe Checkout](https://docs.stripe.com/payments/checkout). Set in `.env`:
+
+- `STRIPE_SECRET_KEY`: the secret API key (`sk_test_...` in test mode)
+- `STRIPE_WEBHOOK_SECRET`: the webhook endpoint's signing secret (`whsec_...`)
+- `BILLING_RETURN_URL`: where Checkout sends the creator back (default `https://avventura.fun/dashboard`), with `?topup=success` or `?topup=cancel`
+
+Without `STRIPE_SECRET_KEY` or `STRIPE_WEBHOOK_SECRET`, the billing routes return 503 and the rest of the API works as usual.
+
+`POST /billing/checkout`, with a bearer token (see [Story ownership](#story-ownership)), takes an amount in euros, from `5` to `500` with at most two decimals, and returns the Checkout page URL:
+
+```bash
+curl -X POST localhost:3000/billing/checkout \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"amount": 20}'
+# {"url": "https://checkout.stripe.com/c/pay/cs_test_..."}
+```
+
+The session is a card payment in EUR for one "Avventura credits" item, with metadata `{ "kind": "topup", "owner": "<address>" }` on the session and its PaymentIntent. It creates a paid invoice with the footer "TVA non applicable, art. 293 B du CGI"; no VAT is charged. Each address has one Stripe Customer, created on its first checkout and stored in the `stripe_customers` table.
+
+Stripe then calls `POST /billing/webhook`, which checks the `Stripe-Signature` header against the raw body (400 when missing or wrong). On `checkout.session.completed` for a paid `topup` session, it reads the payment's [balance transaction](https://docs.stripe.com/api/balance_transactions/object) and credits its net, the amount paid minus the Stripe fee, so the creator pays the fee. A balance that doesn't exist yet opens at `100` first, like `POST /credits`. Other events and sessions are acknowledged and ignored.
+
+Each event is processed once: its id goes into the `stripe_events` table in the same transaction as the credit, so a replayed event credits nothing, and a PaymentIntent is never credited twice. If the payment's balance transaction isn't available yet, the webhook returns 500 and Stripe retries it later.
+
+### Test locally
+
+With the [Stripe CLI](https://docs.stripe.com/stripe-cli), logged in to the test account:
+
+```bash
+stripe listen --forward-to localhost:3000/billing/webhook
+```
+
+It prints a signing secret (`whsec_...`): set it as `STRIPE_WEBHOOK_SECRET` and start the API with `pnpm start:dev`. Then start a checkout with `POST /billing/checkout`, open the URL and pay with the test card `4242 4242 4242 4242`, any future expiry date and any CVC. The creator's balance in `GET /me` grows by the net amount.
+
+`stripe trigger checkout.session.completed` sends a signed event too, but its session has no `topup` metadata, so it only checks that the signature is accepted.
+
+### Production
+
+In the [Stripe Dashboard](https://dashboard.stripe.com/webhooks), add a webhook endpoint at `https://api.avventura.fun/billing/webhook` with the events:
+
+- `checkout.session.completed`
+- `payment_intent.succeeded`
+- `payment_intent.payment_failed`
+
+and set its signing secret as `STRIPE_WEBHOOK_SECRET` on the server, with the live `STRIPE_SECRET_KEY`. The account must settle in EUR: a payment settled in another currency isn't credited and returns 500.
 
 ## Story ownership
 

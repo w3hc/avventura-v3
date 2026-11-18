@@ -181,7 +181,7 @@ describe('Billing (e2e)', () => {
     const signature = sign(payload);
     await webhook(payload, signature).expect(200, { received: true });
     await webhook(payload, signature).expect(200, { received: true });
-    expect(app.get(CreditsService).balance(owner)).toBe(119.45);
+    expect(app.get(CreditsService).balance(owner)).toBe(19.45);
   });
 
   it('/billing/webhook (POST) - rejects a missing signature', async () => {

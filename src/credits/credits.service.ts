@@ -55,9 +55,6 @@ export interface AutoTopupClaim {
   paymentMethod: string;
 }
 
-// The balance a new owner opens at
-export const DEFAULT_CREDITS = 100;
-
 // What GET /me and PUT /billing/auto-topup report, amounts in EUR
 export interface AutoTopupState {
   enabled: boolean;
@@ -104,7 +101,7 @@ interface Statements {
   ) => number;
   spent: Database.Statement<[string], { story: string; amount: number }>;
   stripeEvent: Database.Statement<[string], { id: string }>;
-  creditPayment: (payment: StripePayment, opening: number) => number | null;
+  creditPayment: (payment: StripePayment) => number | null;
   autoTopup: Database.Statement<[string], AutoTopupRow>;
   setAutoTopup: (owner: string, settings: AutoTopupSettings) => void;
   saveAutoTopupCard: (
@@ -242,7 +239,9 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
         if (createBalance.run(owner).changes === 0) {
           return fromMicro(balance.get(owner)!.amount);
         }
-        return move({ owner, kind: 'adjustment', amount, story });
+        return amount === 0
+          ? 0
+          : move({ owner, kind: 'adjustment', amount, story });
       },
     );
 
@@ -271,7 +270,7 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
       },
     );
     const creditPayment = db.transaction(
-      (payment: StripePayment, opening: number): number | null => {
+      (payment: StripePayment): number | null => {
         const now = new Date().toISOString();
         if (
           insertStripeEvent.run(payment.eventId, payment.eventType, now)
@@ -280,9 +279,7 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
         ) {
           return null;
         }
-        if (createBalance.run(payment.owner).changes === 1 && opening !== 0) {
-          move({ owner: payment.owner, kind: 'adjustment', amount: opening });
-        }
+        createBalance.run(payment.owner);
         if (payment.autoTopup !== undefined) {
           succeedAutoTopup.run(
             payment.paymentIntent,
@@ -401,8 +398,7 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
         moveStoryBalance.immediate(slug, owner, initial),
       spent,
       stripeEvent,
-      creditPayment: (payment, opening) =>
-        creditPayment.immediate(payment, opening),
+      creditPayment: (payment) => creditPayment.immediate(payment),
       autoTopup,
       setAutoTopup: (owner, settings) =>
         setAutoTopup.immediate(owner, settings),
@@ -424,7 +420,8 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
     return row ? fromMicro(row.amount) : null;
   }
 
-  // Opens a balance with an adjustment of `amount` EUR, unless it exists
+  // Opens a balance with an adjustment of `amount` EUR (none for 0), unless
+  // it exists
   open(owner: string, amount: number, story?: string): number {
     return this.prepare().open(owner, amount, story);
   }
@@ -461,10 +458,10 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Records the event and credits the payment's net (gross - fee) as a top-up,
-  // opening a missing balance at `opening` EUR first. Returns the new balance,
-  // or null when the event or the PaymentIntent was already processed.
-  creditPayment(payment: StripePayment, opening: number): number | null {
-    return this.prepare().creditPayment(payment, opening);
+  // opening a missing balance at 0 first. Returns the new balance, or null
+  // when the event or the PaymentIntent was already processed.
+  creditPayment(payment: StripePayment): number | null {
+    return this.prepare().creditPayment(payment);
   }
 
   // The owner's auto top-up settings, or null if never set

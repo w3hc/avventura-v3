@@ -20,7 +20,6 @@ import {
   AutoTopupState,
   autoTopupState,
   CreditsService,
-  DEFAULT_CREDITS,
 } from './credits/credits.service';
 import { priceOf, serviceFeeRate } from './credits/service-fee';
 import { PricingService, TokenUsage } from './pricing/pricing.service';
@@ -309,10 +308,9 @@ export class AppService implements OnModuleInit {
     return owner ? owner.toLowerCase() : null;
   }
 
-  // Returns the owner to charge, opening a new owner at the default credits
+  // Returns the owner to charge, opening a new owner at 0
   private assertCredits(owner: string | null, slug?: string): string {
-    const credits =
-      owner === null ? 0 : this.creditsService.open(owner, DEFAULT_CREDITS);
+    const credits = owner === null ? 0 : this.creditsService.open(owner, 0);
     if (owner !== null && credits <= 0) {
       this.billingService.checkAutoTopup(owner);
     }
@@ -1301,7 +1299,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     const autoTopup = this.creditsService.autoTopup(owner);
     return {
       address: owner,
-      balance: this.creditsService.balance(owner) ?? DEFAULT_CREDITS,
+      balance: this.creditsService.balance(owner) ?? 0,
       stories: stories.map((story) => ({
         slug: story.slug,
         title: story.title,
@@ -1334,7 +1332,7 @@ ${ENDING_RULE}${playerNameReminder}`;
     const owner = address.toLowerCase();
     assertCreditsPassword(password, `credits top-up for ${owner}`);
 
-    this.creditsService.open(owner, DEFAULT_CREDITS);
+    this.creditsService.open(owner, 0);
     const added = roundEur(amount);
     const credits = this.creditsService.topUp(owner, added);
     this.logger.log(`Added €${added} to ${owner}, credits now: €${credits}`);

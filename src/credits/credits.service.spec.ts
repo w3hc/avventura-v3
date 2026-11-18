@@ -93,6 +93,12 @@ describe('CreditsService', () => {
     expect(credits.balance('story')).toBeNull();
   });
 
+  it('opens a balance at 0 without a ledger row', () => {
+    expect(credits.open('0xabc', 0)).toBe(0);
+    expect(credits.balance('0xabc')).toBe(0);
+    expect(ledger('0xabc')).toEqual([]);
+  });
+
   it('opens a balance once, with an adjustment', () => {
     expect(credits.open('story', 10, 'story')).toBe(10);
     expect(credits.open('story', 99, 'story')).toBe(10);
@@ -271,7 +277,7 @@ describe('CreditsService', () => {
 
     it('credits the net and stores the gross and the fee', () => {
       credits.open('0xa', 1);
-      expect(credits.creditPayment(payment, 100)).toBe(10.6);
+      expect(credits.creditPayment(payment)).toBe(10.6);
       expect(paymentRows('0xa')).toEqual([
         {
           kind: 'adjustment',
@@ -291,28 +297,25 @@ describe('CreditsService', () => {
       expect(credits.hasStripeEvent('evt_1')).toBe(true);
     });
 
-    it('opens a missing balance at the opening amount first', () => {
-      expect(credits.creditPayment(payment, 100)).toBe(109.6);
-      expect(ledgerSum('0xa')).toBe(109.6);
+    it('opens a missing balance at 0 first', () => {
+      expect(credits.creditPayment(payment)).toBe(9.6);
+      expect(paymentRows('0xa')).toHaveLength(1);
     });
 
     it('credits nothing for a replayed event', () => {
-      credits.creditPayment(payment, 0);
-      expect(credits.creditPayment(payment, 0)).toBeNull();
+      credits.creditPayment(payment);
+      expect(credits.creditPayment(payment)).toBeNull();
       expect(credits.balance('0xa')).toBe(9.6);
     });
 
     it('credits a PaymentIntent once across events', () => {
-      credits.creditPayment(payment, 0);
+      credits.creditPayment(payment);
       expect(
-        credits.creditPayment(
-          {
-            ...payment,
-            eventId: 'evt_2',
-            eventType: 'payment_intent.succeeded',
-          },
-          0,
-        ),
+        credits.creditPayment({
+          ...payment,
+          eventId: 'evt_2',
+          eventType: 'payment_intent.succeeded',
+        }),
       ).toBeNull();
       expect(credits.balance('0xa')).toBe(9.6);
       expect(credits.hasStripeEvent('evt_2')).toBe(true);
@@ -488,18 +491,15 @@ describe('CreditsService', () => {
       credits.open('0xa', 1);
       const claim = credits.claimAutoTopup('0xa')!;
       expect(
-        credits.creditPayment(
-          {
-            eventId: 'evt_1',
-            eventType: 'payment_intent.succeeded',
-            owner: '0xa',
-            paymentIntent: 'pi_1',
-            gross: 20,
-            fee: 0.55,
-            autoTopup: claim.id,
-          },
-          0,
-        ),
+        credits.creditPayment({
+          eventId: 'evt_1',
+          eventType: 'payment_intent.succeeded',
+          owner: '0xa',
+          paymentIntent: 'pi_1',
+          gross: 20,
+          fee: 0.55,
+          autoTopup: claim.id,
+        }),
       ).toBe(20.45);
       expect(payments()).toEqual([
         {

@@ -799,6 +799,7 @@ describe('AppController', () => {
         .spyOn(appController['appService']['pricingService'], 'costEur')
         .mockReturnValue(0.1);
       const writeCost = mockWriteCost();
+      app.get(CreditsService).open(OWNER, 100);
 
       const story = await appController['appService'].createStory(
         'A prompt',
@@ -846,6 +847,7 @@ describe('AppController', () => {
         ),
       );
       const writeCost = mockWriteCost();
+      app.get(CreditsService).open(OWNER, 100);
 
       await expect(
         appController['appService'].createStory('A prompt', OWNER),
@@ -1319,10 +1321,10 @@ describe('AppController', () => {
       ]);
     });
 
-    it('should return the default balance for a new address', () => {
+    it('should return a zero balance for a new address', () => {
       expect(appController.getMe(STRANGER)).toEqual({
         address: STRANGER,
-        balance: 100,
+        balance: 0,
         stories: [],
         autoTopup: null,
       });
@@ -1340,14 +1342,14 @@ describe('AppController', () => {
       expect(readStories()[0].credits).toBe(10);
     });
 
-    it('should open a new address at the default before adding credits', () => {
+    it('should open a new address at 0 before adding credits', () => {
       const result = appController.addCredits({
         address: STRANGER.toUpperCase().replace('0X', '0x'),
         amount: 5,
         password,
       });
-      expect(result).toEqual({ added: 5, credits: 105 });
-      expect(balance(STRANGER)).toBe(105);
+      expect(result).toEqual({ added: 5, credits: 5 });
+      expect(balance(STRANGER)).toBe(5);
     });
 
     it('should reject a wrong password', () => {
@@ -1401,6 +1403,18 @@ describe('AppController', () => {
         expect(generateSpy).not.toHaveBeenCalled();
       },
     );
+
+    it('should open a new owner at 0 and refuse to start with 402', async () => {
+      writeFileSync(
+        storiesPath,
+        JSON.stringify([{ slug: 'new', ownerAddress: STRANGER }]),
+      );
+      await expect(
+        appController['appService'].start('new', 'en'),
+      ).rejects.toMatchObject({ status: 402, message: 'Not enough credits' });
+      expect(balance(STRANGER)).toBe(0);
+      expect(balance(OWNER)).toBe(15);
+    });
 
     it('should refuse to move with 402 when the story is out of credits', async () => {
       const service = internals(appController['appService']);

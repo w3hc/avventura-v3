@@ -513,9 +513,9 @@ describe('BillingService', () => {
       expect(credits.balance(OWNER)).toBe(10.41);
     });
 
-    it('opens a missing balance at the default credits', async () => {
+    it('opens a missing balance at 0', async () => {
       await deliver(signed(checkoutCompleted()));
-      expect(credits.balance(OWNER)).toBe(109.41);
+      expect(credits.balance(OWNER)).toBe(9.41);
     });
 
     it('credits nothing for a replayed event', async () => {
@@ -523,7 +523,7 @@ describe('BillingService', () => {
       await deliver(delivery);
       await deliver(delivery);
       await deliver(signed(checkoutCompleted()));
-      expect(credits.balance(OWNER)).toBe(109.41);
+      expect(credits.balance(OWNER)).toBe(9.41);
       expect(stripe.paymentIntents.retrieve).toHaveBeenCalledTimes(1);
     });
 
@@ -615,7 +615,7 @@ describe('BillingService', () => {
       );
       expect(credits.hasStripeEvent('evt_1')).toBe(false);
       await deliver(delivery);
-      expect(credits.balance(OWNER)).toBe(109.41);
+      expect(credits.balance(OWNER)).toBe(9.41);
     });
 
     it('acknowledges a payment not settled in euros without crediting', async () => {

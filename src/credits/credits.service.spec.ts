@@ -203,6 +203,13 @@ describe('CreditsService', () => {
     ]);
   });
 
+  it('opens nothing for a story without a balance or an initial amount', () => {
+    expect(credits.moveStoryBalance('story', '0xabc', null)).toBe(0);
+    expect(credits.balance('story')).toBeNull();
+    expect(credits.balance('0xabc')).toBeNull();
+    expect(ledger('story')).toEqual([]);
+  });
+
   it('opens the owner balance even when the story balance is 0', () => {
     credits.open('story', 0, 'story');
 

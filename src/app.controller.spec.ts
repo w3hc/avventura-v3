@@ -1204,6 +1204,17 @@ describe('AppController', () => {
       }
     });
 
+    it('should not credit stories created after balances moved to owners', () => {
+      writeFileSync(
+        storiesPath,
+        JSON.stringify([{ slug: 'new', ownerAddress: STRANGER }]),
+      );
+      appController['appService'].onModuleInit();
+
+      expect(balance(STRANGER)).toBeNull();
+      expect(balance('new')).toBeNull();
+    });
+
     it('should rename creatorAddress to ownerAddress at startup', () => {
       writeFileSync(
         storiesPath,

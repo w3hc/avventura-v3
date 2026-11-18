@@ -139,6 +139,9 @@ export interface Me {
 
 type LegacyStoryData = StoryData & { creatorAddress?: string };
 
+// What a story without a credits key held before balances moved to owners
+const LEGACY_STORY_CREDITS = 100;
+
 const PROTECTED_STORY_FIELDS: readonly string[] = [
   'ownerAddress',
   'credits',
@@ -198,6 +201,12 @@ export class AppService implements OnModuleInit {
     );
   }
 
+  // Stories with an ownerAddress and no credits key were created after
+  // balances moved to owners, so they have no story credits of their own
+  private legacyCredits(story: StoryData): number | null {
+    return story.credits ?? (story.ownerAddress ? null : LEGACY_STORY_CREDITS);
+  }
+
   // Moves each story's balance to its owner, once
   private moveStoryBalances(stories: StoryData[]): void {
     const ownerless: string[] = [];
@@ -210,7 +219,7 @@ export class AppService implements OnModuleInit {
       const moved = this.creditsService.moveStoryBalance(
         story.slug,
         owner,
-        story.credits ?? DEFAULT_CREDITS,
+        this.legacyCredits(story),
       );
       if (moved !== 0) {
         this.logger.log(`Moved €${moved} from story ${story.slug} to ${owner}`);

@@ -97,7 +97,11 @@ interface Statements {
   balance: Database.Statement<[string], { amount: number }>;
   apply: (movement: Movement) => number;
   open: (owner: string, amount: number, story?: string) => number;
-  moveStoryBalance: (slug: string, owner: string, initial: number) => number;
+  moveStoryBalance: (
+    slug: string,
+    owner: string,
+    initial: number | null,
+  ) => number;
   spent: Database.Statement<[string], { story: string; amount: number }>;
   stripeEvent: Database.Statement<[string], { id: string }>;
   creditPayment: (payment: StripePayment, opening: number) => number | null;
@@ -243,8 +247,12 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
     );
 
     const moveStoryBalance = db.transaction(
-      (slug: string, owner: string, initial: number): number => {
-        if (createBalance.run(slug).changes === 1) {
+      (slug: string, owner: string, initial: number | null): number => {
+        if (!balance.get(slug)) {
+          if (initial === null) {
+            return 0;
+          }
+          createBalance.run(slug);
           move({
             owner: slug,
             kind: 'adjustment',
@@ -438,8 +446,13 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Moves a story's balance to its owner, opening it at `initial` EUR if the
-  // story has none yet. Returns the amount moved, 0 once already moved.
-  moveStoryBalance(slug: string, owner: string, initial: number): number {
+  // story has none yet, or doing nothing when `initial` is null. Returns the
+  // amount moved, 0 once already moved.
+  moveStoryBalance(
+    slug: string,
+    owner: string,
+    initial: number | null,
+  ): number {
     return this.prepare().moveStoryBalance(slug, owner, initial);
   }
 

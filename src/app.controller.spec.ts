@@ -1281,10 +1281,25 @@ describe('AppController', () => {
       });
     });
 
+    it('should check the auto top-up when refusing with 402', async () => {
+      const checkAutoTopup = jest.spyOn(
+        app.get(BillingService),
+        'checkAutoTopup',
+      );
+      app.get(CreditsService).open(STRANGER, 0);
+      await expect(
+        appController['appService'].createStory('A prompt', STRANGER),
+      ).rejects.toMatchObject({ status: 402 });
+      expect(checkAutoTopup).toHaveBeenCalledWith(STRANGER);
+    });
+
     it('should check the auto top-up after each charge', () => {
-      const afterDebit = jest.spyOn(app.get(BillingService), 'afterDebit');
+      const checkAutoTopup = jest.spyOn(
+        app.get(BillingService),
+        'checkAutoTopup',
+      );
       internals(appController['appService']).chargeOwner(OWNER, 0.1, 'funded');
-      expect(afterDebit).toHaveBeenCalledWith(OWNER);
+      expect(checkAutoTopup).toHaveBeenCalledWith(OWNER);
     });
 
     it('should list stories without an owner under DEFAULT_OWNER_ADDRESS', () => {

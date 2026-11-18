@@ -296,7 +296,7 @@ describe('BillingService', () => {
 
     const debit = (amount: number) => {
       credits.charge(OWNER, { llmCost: amount, amount });
-      billing.afterDebit(OWNER);
+      billing.checkAutoTopup(OWNER);
     };
 
     it('charges the saved card once the threshold is crossed', async () => {
@@ -362,15 +362,6 @@ describe('BillingService', () => {
         'authentication_required',
         'pi_auth',
       ],
-      [
-        'a Stripe outage',
-        new Stripe.errors.StripeAPIError({
-          message: 'down',
-          type: 'api_error',
-        }),
-        'api_error',
-        null,
-      ],
     ])('pauses on %s', async (_name, error, reason, intent) => {
       stripe.paymentIntents.create.mockRejectedValue(error);
       debit(1);
@@ -380,6 +371,47 @@ describe('BillingService', () => {
         { id: 1, status: 'failed', payment_intent: intent },
       ]);
       debit(1);
+      await flush();
+      expect(stripe.paymentIntents.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the claim pending after a Stripe outage and retries it', async () => {
+      jest.useFakeTimers({
+        now: new Date('2026-11-18T10:00:00Z'),
+        doNotFake: ['setImmediate'],
+      });
+      try {
+        stripe.paymentIntents.create.mockRejectedValueOnce(
+          new Stripe.errors.StripeConnectionError({ message: 'timeout' }),
+        );
+        debit(1);
+        await flush();
+        expect(credits.autoTopup(OWNER)?.pausedReason).toBeNull();
+        expect(payments()).toEqual([
+          { id: 1, status: 'pending', payment_intent: null },
+        ]);
+        jest.setSystemTime(new Date('2026-11-18T10:11:00Z'));
+        debit(1);
+        await flush();
+        expect(stripe.paymentIntents.create).toHaveBeenCalledTimes(2);
+        expect(stripe.paymentIntents.create).toHaveBeenLastCalledWith(
+          expect.anything(),
+          { idempotencyKey: 'auto-topup-1' },
+        );
+        expect(payments()).toEqual([
+          { id: 1, status: 'pending', payment_intent: 'pi_auto' },
+        ]);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('charges when the settings are saved below the threshold', async () => {
+      credits.charge(OWNER, { llmCost: 3, amount: 3 });
+      billing.setAutoTopup(OWNER, { enabled: true, threshold: 2 });
+      await flush();
+      expect(stripe.paymentIntents.create).not.toHaveBeenCalled();
+      billing.setAutoTopup(OWNER, { enabled: true, threshold: 3 });
       await flush();
       expect(stripe.paymentIntents.create).toHaveBeenCalledTimes(1);
     });

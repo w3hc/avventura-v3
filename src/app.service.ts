@@ -304,6 +304,9 @@ export class AppService implements OnModuleInit {
   private assertCredits(owner: string | null, slug?: string): string {
     const credits =
       owner === null ? 0 : this.creditsService.open(owner, DEFAULT_CREDITS);
+    if (owner !== null && credits <= 0) {
+      this.billingService.checkAutoTopup(owner);
+    }
     if (owner === null || credits <= 0) {
       this.logger.warn(
         `${owner ?? `Story ${slug}`} is out of credits (€${credits})`,
@@ -337,7 +340,7 @@ export class AppService implements OnModuleInit {
       this.logger.debug(
         `Charged €${price} (LLM cost €${roundEur(cost)}) to ${owner} for story ${story}, credits left: €${credits}`,
       );
-      this.billingService.afterDebit(owner);
+      this.billingService.checkAutoTopup(owner);
     } catch (error) {
       this.logger.error(
         `Failed to charge ${owner} for story ${story}: ${error instanceof Error ? error.message : 'Unknown error'}`,

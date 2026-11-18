@@ -45,11 +45,18 @@ const returnUrl = (
   return url.toString();
 };
 
-// A Stripe error code such as card_declined or authentication_required
-const failureReason = (error: unknown): string =>
-  error instanceof Stripe.errors.StripeError
-    ? (error.code ?? error.rawType ?? error.type)
-    : 'unexpected_error';
+// Stripe errors after which the same request may still succeed
+const isTransient = (error: Stripe.errors.StripeError): boolean =>
+  error instanceof Stripe.errors.StripeConnectionError ||
+  error instanceof Stripe.errors.StripeAPIError ||
+  error instanceof Stripe.errors.StripeRateLimitError;
+
+const sessionUrl = (session: Stripe.Checkout.Session): string => {
+  if (!session.url) {
+    throw new BadGatewayException('Stripe returned no checkout URL');
+  }
+  return session.url;
+};
 
 const isMissingCustomer = (error: unknown): boolean =>
   error instanceof Stripe.errors.StripeInvalidRequestError &&
@@ -191,11 +198,9 @@ export class BillingService implements OnModuleDestroy {
           },
         }),
     );
-    if (!session.url) {
-      throw new BadGatewayException('Stripe returned no checkout URL');
-    }
+    const url = sessionUrl(session);
     this.logger.log(`Checkout of €${amount} started for ${owner}`);
-    return { url: session.url };
+    return { url };
   }
 
   // A setup-mode Checkout Session that saves a card for auto top-ups
@@ -217,11 +222,9 @@ export class BillingService implements OnModuleDestroy {
           setup_intent_data: { metadata },
         }),
     );
-    if (!session.url) {
-      throw new BadGatewayException('Stripe returned no checkout URL');
-    }
+    const url = sessionUrl(session);
     this.logger.log(`Card setup started for ${owner}`);
-    return { url: session.url };
+    return { url };
   }
 
   setAutoTopup(owner: string, settings: AutoTopupSettings): AutoTopupState {
@@ -230,12 +233,14 @@ export class BillingService implements OnModuleDestroy {
     this.logger.log(
       `Auto top-up for ${owner} ${saved.enabled ? `on: €${saved.amount} at €${saved.threshold}` : 'off'}`,
     );
+    this.checkAutoTopup(owner);
     return autoTopupState(saved);
   }
 
-  // Claims an auto top-up if this debit calls for one and charges it in the
-  // background. Never throws, so the debit's response doesn't wait or fail.
-  afterDebit(owner: string): void {
+  // Claims an auto top-up if the balance calls for one and charges it in the
+  // background. Called after each debit, on a 402, and when the settings or
+  // the card change. Never throws, so the caller doesn't wait or fail.
+  checkAutoTopup(owner: string): void {
     if (!this.stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
       return;
     }
@@ -259,7 +264,8 @@ export class BillingService implements OnModuleDestroy {
 
   // Charges a claimed auto top-up to the saved card, off-session. The
   // idempotency key comes from the claim, so it is charged at most once.
-  // A payment Stripe refuses pauses auto top-up.
+  // A payment Stripe refuses pauses auto top-up; after a transient error the
+  // claim stays pending and is retried (see AUTO_TOPUP_RETRY_MS).
   async chargeAutoTopup(claim: AutoTopupClaim): Promise<void> {
     const { stripe } = this.configured();
     const { id, owner, amount, paymentMethod } = claim;
@@ -284,14 +290,16 @@ export class BillingService implements OnModuleDestroy {
         { idempotencyKey: `auto-topup-${id}` },
       );
     } catch (error) {
-      const declined =
-        error instanceof Stripe.errors.StripeError
-          ? error.payment_intent
-          : undefined;
-      if (declined) {
-        this.creditsService.startAutoTopup(id, declined.id);
+      if (!(error instanceof Stripe.errors.StripeError) || isTransient(error)) {
+        this.logger.warn(
+          `Auto top-up ${id} for ${owner} will be retried: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        return;
       }
-      this.pauseAutoTopup(id, owner, failureReason(error));
+      if (error.payment_intent) {
+        this.creditsService.startAutoTopup(id, error.payment_intent.id);
+      }
+      this.pauseAutoTopup(id, owner, error.code ?? error.rawType ?? error.type);
       return;
     }
     this.creditsService.startAutoTopup(id, intent.id);
@@ -412,6 +420,7 @@ export class BillingService implements OnModuleDestroy {
     const paymentMethod = typeof card === 'string' ? card : card.id;
     if (this.creditsService.saveAutoTopupCard(owner, paymentMethod, event)) {
       this.logger.log(`Saved ${paymentMethod} for ${owner}'s auto top-up`);
+      this.checkAutoTopup(owner);
     }
   }
 

@@ -3,7 +3,7 @@ import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
-import { CreditsService } from './credits.service';
+import { CreditsService, FREE_STORY_OWNER } from './credits.service';
 
 interface LedgerRow {
   owner: string;
@@ -524,5 +524,53 @@ describe('CreditsService', () => {
       expect(claims.reduce((sum, made) => sum + made, 0)).toBe(1);
       expect(payments()).toHaveLength(1);
     }, 30_000);
+  });
+
+  describe('free stories', () => {
+    it("claims an owner's first story only", () => {
+      expect(credits.canClaimFreeStory('0xa')).toBe(true);
+      expect(credits.claimFreeStory('0xa', 'first')).toBe(true);
+      expect(credits.claimFreeStory('0xa', 'second')).toBe(false);
+      expect(credits.canClaimFreeStory('0xa')).toBe(false);
+      expect(credits.freeStory('0xa')).toBe('first');
+      expect(credits.freeStory('0xb')).toBeNull();
+    });
+
+    it('gives no free story to owners who created stories before', () => {
+      credits.claimFreeStory('0xa', 'first');
+      credits.skipFreeStories(['0xa', '0xb']);
+
+      expect(credits.freeStory('0xa')).toBe('first');
+      expect(credits.canClaimFreeStory('0xb')).toBe(false);
+      expect(credits.claimFreeStory('0xb', 'later')).toBe(false);
+      expect(credits.freeStory('0xb')).toBeNull();
+    });
+
+    it('charges a free story to the platform and sums its spend', () => {
+      credits.open('0xa', 5);
+      expect(
+        credits.chargeFreeStory({
+          story: 'first',
+          game: 'G',
+          llmCost: 0.5,
+          amount: 0.65,
+        }),
+      ).toBe(-0.65);
+      credits.chargeFreeStory({ story: 'first', llmCost: 1, amount: 1.3 });
+      credits.charge('0xa', { story: 'first', llmCost: 1, amount: 1.3 });
+
+      expect(credits.freeStorySpent('first')).toBe(1.95);
+      expect(credits.freeStorySpent('other')).toBe(0);
+      expect(credits.balance('0xa')).toBe(3.7);
+      expect(credits.balance(FREE_STORY_OWNER)).toBe(-1.95);
+      expect(ledger(FREE_STORY_OWNER)[0]).toEqual({
+        owner: FREE_STORY_OWNER,
+        story: 'first',
+        game: 'G',
+        kind: 'llm',
+        llm_cost: 500_000,
+        amount: -650_000,
+      });
+    });
   });
 });

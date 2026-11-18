@@ -55,6 +55,9 @@ export interface AutoTopupClaim {
   paymentMethod: string;
 }
 
+// The ledger owner charged for free stories
+export const FREE_STORY_OWNER = 'platform';
+
 // What GET /me and PUT /billing/auto-topup report, amounts in EUR
 export interface AutoTopupState {
   enabled: boolean;
@@ -112,6 +115,11 @@ interface Statements {
   claimAutoTopup: (owner: string) => AutoTopupClaim | null;
   startAutoTopup: Database.Statement<[string, number]>;
   failAutoTopup: (id: number, owner: string, reason: string) => boolean;
+  freeStory: Database.Statement<[string], { story: string | null }>;
+  claimFreeStory: Database.Statement<[string, string | null, string]>;
+  skipFreeStories: (owners: string[]) => void;
+  chargeFreeStory: (movement: Movement) => number;
+  freeStorySpent: Database.Statement<[string, string], { amount: number }>;
 }
 
 @Injectable()
@@ -383,6 +391,27 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
         return true;
       },
     );
+    const freeStory = db.prepare<[string], { story: string | null }>(
+      'SELECT story FROM free_stories WHERE owner = ?',
+    );
+    const claimFreeStory = db.prepare<[string, string | null, string]>(
+      `INSERT INTO free_stories (owner, story, created_at) VALUES (?, ?, ?)
+       ON CONFLICT DO NOTHING`,
+    );
+    const skipFreeStories = db.transaction((owners: string[]): void => {
+      const now = new Date().toISOString();
+      for (const owner of owners) {
+        claimFreeStory.run(owner, null, now);
+      }
+    });
+    const chargeFreeStory = db.transaction((movement: Movement): number => {
+      createBalance.run(movement.owner);
+      return move(movement);
+    });
+    const freeStorySpent = db.prepare<[string, string], { amount: number }>(
+      `SELECT COALESCE(-SUM(amount), 0) AS amount FROM ledger
+       WHERE owner = ? AND kind = 'llm' AND story = ?`,
+    );
     const spent = db.prepare<[string], { story: string; amount: number }>(
       `SELECT story, -SUM(amount) AS amount FROM ledger
        WHERE kind = 'llm' AND story IN (SELECT value FROM json_each(?))
@@ -410,6 +439,11 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
       startAutoTopup,
       failAutoTopup: (id, owner, reason) =>
         failAutoTopup.immediate(id, owner, reason),
+      freeStory,
+      claimFreeStory,
+      skipFreeStories: (owners) => skipFreeStories.immediate(owners),
+      chargeFreeStory: (movement) => chargeFreeStory.immediate(movement),
+      freeStorySpent,
     };
     return this.statements;
   }
@@ -511,6 +545,52 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
   // Returns false when it was no longer pending.
   failAutoTopup(id: number, owner: string, reason: string): boolean {
     return this.prepare().failAutoTopup(id, owner, reason);
+  }
+
+  // The slug of the owner's free story, or null if they have none
+  freeStory(owner: string): string | null {
+    return this.prepare().freeStory.get(owner)?.story ?? null;
+  }
+
+  // True until the owner has created a story
+  canClaimFreeStory(owner: string): boolean {
+    return this.prepare().freeStory.get(owner) === undefined;
+  }
+
+  // Makes `story` the owner's free story, unless they already created one.
+  // Returns false when they had.
+  claimFreeStory(owner: string, story: string): boolean {
+    return (
+      this.prepare().claimFreeStory.run(owner, story, new Date().toISOString())
+        .changes === 1
+    );
+  }
+
+  // Records that these owners created stories before free stories existed
+  skipFreeStories(owners: string[]): void {
+    this.prepare().skipFreeStories(owners);
+  }
+
+  // Charges a free story's request to FREE_STORY_OWNER, opening its balance
+  chargeFreeStory(entry: {
+    story?: string;
+    game?: string;
+    llmCost: number;
+    amount: number;
+  }): number {
+    return this.prepare().chargeFreeStory({
+      owner: FREE_STORY_OWNER,
+      kind: 'llm',
+      ...entry,
+      amount: -entry.amount,
+    });
+  }
+
+  // Total price of a free story's requests in EUR
+  freeStorySpent(story: string): number {
+    return fromMicro(
+      this.prepare().freeStorySpent.get(FREE_STORY_OWNER, story)!.amount,
+    );
   }
 
   // Total LLM debits per story in EUR, across every owner it has had

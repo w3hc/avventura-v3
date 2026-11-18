@@ -20,7 +20,13 @@ describe('CheckoutDto', () => {
 
 describe('AutoTopupDto', () => {
   const errors = async (body: object): Promise<number> =>
-    (await validate(plainToInstance(AutoTopupDto, body))).length;
+    (
+      await validate(
+        plainToInstance(AutoTopupDto, body, {
+          enableImplicitConversion: true,
+        }),
+      )
+    ).length;
 
   it.each([
     { enabled: true, amount: 10, threshold: 5 },
@@ -35,6 +41,8 @@ describe('AutoTopupDto', () => {
   it.each([
     {},
     { enabled: 'yes' },
+    { enabled: 'false' },
+    { enabled: 0 },
     { enabled: true, amount: 4.99 },
     { enabled: true, amount: 500.01 },
     { enabled: true, amount: 10.005 },

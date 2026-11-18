@@ -22,6 +22,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { IsBoolean, IsNumber, Max, Min, ValidateIf } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { Request } from 'express';
 import { SessionAddress } from '../auth/session-address.decorator';
 import { SessionGuard } from '../auth/session.guard';
@@ -44,6 +45,8 @@ export class AutoTopupDto {
     description: 'Whether to top up automatically',
     example: true,
   })
+  // The raw value, so implicit conversion can't turn "false" into true
+  @Transform(({ obj }: { obj: { enabled?: unknown } }) => obj.enabled)
   @IsBoolean()
   enabled: boolean;
 

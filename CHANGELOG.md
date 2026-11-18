@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A creator's first story is free: its requests, creation included, are charged to the `platform` ledger owner, tagged with the story, never to the creator's balance or auto top-up, until their total price reaches `FREE_STORY_LIMIT` euros (default `2`, invalid values fall back with a warning). Then `POST /start` and `POST /move` return 402 `Free story limit reached` ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
+- `free_stories` table: one free story per address, recorded when the story is saved, so deleting or editing it doesn't grant another. Addresses that own stories on startup get none ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
+- `GET /me` marks each story `free` and returns `freeStory`: `{ slug, spent, limit }`, or `null` ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
+- `.env.template` lists `FREE_STORY_LIMIT` ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
+- The README explains the free first story and how to report its cost ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
+
 - `PUT /billing/auto-topup` saves, changes or disables a creator's automatic top-up: an `amount` from €5 to €500 charged when a debit leaves the balance at or below `threshold` (€0 or more), `10` and `5` until set. Saving the settings resumes a paused auto top-up ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
 - `POST /billing/auto-topup/setup` returns a Stripe Checkout page in `setup` mode that saves a card, back to `BILLING_RETURN_URL` with `?card=saved` or `?card=cancel`. Its `checkout.session.completed` event stores the card and resumes a paused auto top-up ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
 - After each debit, on each 402 and when the settings or card change, an active auto top-up below its threshold records one pending payment per owner in `auto_topup_payments` and charges the saved card off-session in the background, with the idempotency key `auto-topup-<id>`, so a burst of debits charges once ([#45](https://github.com/w3hc/avventura-v3/issues/45)).
@@ -56,6 +62,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Each difficulty adds prompt rules on deadly options, foreshadowing and scarcity; output exceeding its death limit (0, 1 or 2 per step) is regenerated once ([#29](https://github.com/w3hc/avventura-v3/issues/29)).
 
 ### Changed
+
+- New balances open at €0 instead of €100, whether opened by a request, `POST /credits` or a Stripe payment; existing balances are kept. `DEFAULT_CREDITS` is removed ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
+- On startup, a story with an `ownerAddress` and no `credits` key no longer opens a €100 story balance that moves to its owner; legacy stories keep their amounts ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
 
 - `POST /stories`, `POST /stories/edit` and `GET /me` take `Authorization: Bearer <token>` from `POST /auth/siwe` instead of a SIWE signature per request: the `x-siwe-message` and `x-siwe-signature` headers and `SiweAuthGuard` are removed ([#47](https://github.com/w3hc/avventura-v3/issues/47)).
 - A story's owner is stored as `ownerAddress` instead of `creatorAddress`; on startup, a `creatorAddress` key in `stories/stories.json` is renamed, and the file is only written when something changed ([#52](https://github.com/w3hc/avventura-v3/issues/52)).

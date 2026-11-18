@@ -51,7 +51,7 @@ In `short` mode, a `desc` over the limit triggers one regeneration; if it is sti
 
 ## Credits
 
-Each story owner has one balance in euros, keyed by their lowercased address (the story's `ownerAddress`). Stories without an `ownerAddress` belong to `DEFAULT_OWNER_ADDRESS`. A new address opens its balance at `100`. Players never sign in: playing a story charges its owner.
+Each story owner has one balance in euros, keyed by their lowercased address (the story's `ownerAddress`). Stories without an `ownerAddress` belong to `DEFAULT_OWNER_ADDRESS`. A new address opens its balance at `0`, and existing balances are kept. Players never sign in: playing a story charges its owner, except for a creator's free first story (see [Free first story](#free-first-story)).
 
 Balances live in a SQLite database at `DATABASE_PATH` (default `data/avventura.db`), created on startup with two tables:
 
@@ -62,9 +62,9 @@ Amounts are stored in micro-euros. Every charge and top-up writes its ledger row
 
 Every AI call made by `POST /stories`, `POST /start` and `POST /move` is priced in euros from the tokens it used (input, cache writes, cache reads and output, at the current `claude-sonnet-5-5` rates, see [Pricing](#pricing)). Its price adds the service fee: `price = llmCost × (1 + SERVICE_FEE_RATE)`, where `SERVICE_FEE_RATE` is a fraction (default `0.30`, so 30%). A missing or empty rate uses the default; a negative or non-numeric one also uses it, with a warning in the logs. The price is charged to the story's owner as an `llm` ledger row tagged with the story. `POST /start` and `POST /move` also add it to the game's `spent` key in `games/<id>.json`, and `POST /move` returns the game's `spent` total. Story creation is charged even when the AI response isn't a valid story, since the call was paid for.
 
-When the owner's balance is `0` or below, `POST /stories`, `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
+When the owner's balance is `0` or below, `POST /stories` (after the free first story), `POST /start` and `POST /move` return `402 Payment Required` without calling the AI. A move that reaches an ending is still allowed, since it costs nothing. The last request before running out can take the balance slightly below zero.
 
-On startup, each story's balance moves to its owner as two `adjustment` ledger rows, one taking it from the story and one giving it to the owner, so totals don't change. A story with no balance yet is first opened from its `credits` key in `stories/stories.json` (`100` without the key). A story already at `0` is skipped, so restarting moves nothing. Without `DEFAULT_OWNER_ADDRESS`, stories that have no `ownerAddress` are skipped with a warning and return 402.
+On startup, each story's balance moves to its owner as two `adjustment` ledger rows, one taking it from the story and one giving it to the owner, so totals don't change. A story with no balance yet is first opened from its `credits` key in `stories/stories.json`, or at `100` when it has neither that key nor an `ownerAddress`, as stories created before credits did. A story with an `ownerAddress` and no `credits` key was created after balances moved to owners and has nothing to move. A story already at `0` is skipped, so restarting moves nothing. Without `DEFAULT_OWNER_ADDRESS`, stories that have no `ownerAddress` are skipped with a warning and return 402.
 
 Top up an address with `POST /credits`:
 
@@ -72,7 +72,7 @@ Top up an address with `POST /credits`:
 curl -X POST localhost:3000/credits \
   -H 'Content-Type: application/json' \
   -d '{"address": "0x1111111111111111111111111111111111111111", "amount": 20, "password": "..."}'
-# {"added": 20, "credits": 117.42}
+# {"added": 20, "credits": 20}
 ```
 
 The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an invalid address 400.
@@ -82,8 +82,12 @@ The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an
 ```json
 {
   "address": "0x1111111111111111111111111111111111111111",
-  "balance": 117.42,
-  "stories": [{ "slug": "montpellier", "title": "Montpellier", "spent": 2.58 }],
+  "balance": 17.42,
+  "stories": [
+    { "slug": "montpellier", "title": "Montpellier", "spent": 1.2, "free": true },
+    { "slug": "kingston", "title": "Kingston", "spent": 2.58, "free": false }
+  ],
+  "freeStory": { "slug": "montpellier", "spent": 1.2, "limit": 2 },
   "autoTopup": {
     "enabled": true,
     "amount": 10,
@@ -95,7 +99,20 @@ The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an
 }
 ```
 
-`spent` is the total of the story's `llm` charges in euros, service fee included. `autoTopup` is `null` until the account sets it up (see [Auto top-up](#auto-top-up)).
+`spent` is the total of the story's `llm` charges in euros, service fee included. `free` marks the creator's free story, and `freeStory` gives its spend and `FREE_STORY_LIMIT`, or is `null` when the address has no free story. `autoTopup` is `null` until the account sets it up (see [Auto top-up](#auto-top-up)).
+
+### Free first story
+
+The first story an address creates is free: the platform pays for its requests, creation included, until their total price reaches `FREE_STORY_LIMIT` euros (default `2`; a negative or non-numeric value uses the default, with a warning). `POST /stories` doesn't check the creator's balance for it.
+
+The free story is recorded in the `free_stories` table when it is saved, one per address, so deleting or editing it doesn't grant another one, and a creation that fails leaves it to the next one. Addresses that already own stories on startup get none. Its `llm` ledger rows are charged to the `platform` owner, tagged with the story, so the creator's balance and auto top-up are never touched and the cost of free stories can be reported with:
+
+```sql
+SELECT story, -SUM(amount) / 1e6 AS price_eur, SUM(llm_cost) / 1e6 AS llm_cost_eur
+FROM ledger WHERE owner = 'platform' GROUP BY story;
+```
+
+Once its total price reaches the limit, `POST /start` and `POST /move` on the free story return `402 Payment Required` (`Free story limit reached`) without calling the AI, and it stays stopped: it doesn't fall back to the creator's balance. The request that crosses the limit can take it slightly above. Later stories are billed to the creator as usual.
 
 ## Billing
 
@@ -119,7 +136,7 @@ curl -X POST localhost:3000/billing/checkout \
 
 The session is a card payment in EUR for one "Avventura credits" item, with metadata `{ "kind": "topup", "owner": "<address>" }` on the session and its PaymentIntent. It creates a paid invoice with the footer "TVA non applicable, art. 293 B du CGI"; no VAT is charged. Each address has one Stripe Customer, created on its first checkout and stored in the `stripe_customers` table. If Stripe no longer has it, for example after switching from test to live keys, a new one replaces it.
 
-Stripe then calls `POST /billing/webhook`, which checks the `Stripe-Signature` header against the raw body (400 when missing or wrong). On `checkout.session.completed` for a paid `topup` session, it reads the payment's [balance transaction](https://docs.stripe.com/api/balance_transactions/object) and credits its net, the amount paid minus the Stripe fee, so the creator pays the fee. A balance that doesn't exist yet opens at `100` first, like `POST /credits`. Other events and sessions are acknowledged and ignored.
+Stripe then calls `POST /billing/webhook`, which checks the `Stripe-Signature` header against the raw body (400 when missing or wrong). On `checkout.session.completed` for a paid `topup` session, it reads the payment's [balance transaction](https://docs.stripe.com/api/balance_transactions/object) and credits its net, the amount paid minus the Stripe fee, so the creator pays the fee. A balance that doesn't exist yet opens at `0` first, like `POST /credits`. Other events and sessions are acknowledged and ignored.
 
 Each event is processed once: its id goes into the `stripe_events` table in the same transaction as the credit, so a replayed event credits nothing, and a PaymentIntent is never credited twice. If the payment's balance transaction isn't available yet, the webhook returns 500 and Stripe retries it later.
 

@@ -1,21 +1,34 @@
 export const DEFAULT_SERVICE_FEE_RATE = 0.3;
 
-export function serviceFeeRate(
+// Reads a non-negative number from an env value, `fallback` when unset or
+// invalid
+export function nonNegativeEnv(
+  name: string,
   value: string | undefined,
+  fallback: number,
   onInvalid: (message: string) => void,
 ): number {
   if (value === undefined || value.trim() === '') {
-    return DEFAULT_SERVICE_FEE_RATE;
+    return fallback;
   }
-  const rate = Number(value);
-  if (!Number.isFinite(rate) || rate < 0) {
-    onInvalid(
-      `Invalid SERVICE_FEE_RATE "${value}", using ${DEFAULT_SERVICE_FEE_RATE}`,
-    );
-    return DEFAULT_SERVICE_FEE_RATE;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    onInvalid(`Invalid ${name} "${value}", using ${fallback}`);
+    return fallback;
   }
-  return rate;
+  return number;
 }
+
+export const serviceFeeRate = (
+  value: string | undefined,
+  onInvalid: (message: string) => void,
+): number =>
+  nonNegativeEnv(
+    'SERVICE_FEE_RATE',
+    value,
+    DEFAULT_SERVICE_FEE_RATE,
+    onInvalid,
+  );
 
 export const priceOf = (llmCost: number, rate: number): number =>
   llmCost * (1 + rate);

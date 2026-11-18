@@ -3,7 +3,7 @@ import { mkdtempSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
-import { CreditsService } from './credits.service';
+import { CreditsService, FREE_STORY_OWNER } from './credits.service';
 
 interface LedgerRow {
   owner: string;
@@ -91,6 +91,12 @@ describe('CreditsService', () => {
 
   it('has no balance for an unknown owner', () => {
     expect(credits.balance('story')).toBeNull();
+  });
+
+  it('opens a balance at 0 without a ledger row', () => {
+    expect(credits.open('0xabc', 0)).toBe(0);
+    expect(credits.balance('0xabc')).toBe(0);
+    expect(ledger('0xabc')).toEqual([]);
   });
 
   it('opens a balance once, with an adjustment', () => {
@@ -203,6 +209,13 @@ describe('CreditsService', () => {
     ]);
   });
 
+  it('opens nothing for a story without a balance or an initial amount', () => {
+    expect(credits.moveStoryBalance('story', '0xabc', null)).toBe(0);
+    expect(credits.balance('story')).toBeNull();
+    expect(credits.balance('0xabc')).toBeNull();
+    expect(ledger('story')).toEqual([]);
+  });
+
   it('opens the owner balance even when the story balance is 0', () => {
     credits.open('story', 0, 'story');
 
@@ -264,7 +277,7 @@ describe('CreditsService', () => {
 
     it('credits the net and stores the gross and the fee', () => {
       credits.open('0xa', 1);
-      expect(credits.creditPayment(payment, 100)).toBe(10.6);
+      expect(credits.creditPayment(payment)).toBe(10.6);
       expect(paymentRows('0xa')).toEqual([
         {
           kind: 'adjustment',
@@ -284,28 +297,25 @@ describe('CreditsService', () => {
       expect(credits.hasStripeEvent('evt_1')).toBe(true);
     });
 
-    it('opens a missing balance at the opening amount first', () => {
-      expect(credits.creditPayment(payment, 100)).toBe(109.6);
-      expect(ledgerSum('0xa')).toBe(109.6);
+    it('opens a missing balance at 0 first', () => {
+      expect(credits.creditPayment(payment)).toBe(9.6);
+      expect(paymentRows('0xa')).toHaveLength(1);
     });
 
     it('credits nothing for a replayed event', () => {
-      credits.creditPayment(payment, 0);
-      expect(credits.creditPayment(payment, 0)).toBeNull();
+      credits.creditPayment(payment);
+      expect(credits.creditPayment(payment)).toBeNull();
       expect(credits.balance('0xa')).toBe(9.6);
     });
 
     it('credits a PaymentIntent once across events', () => {
-      credits.creditPayment(payment, 0);
+      credits.creditPayment(payment);
       expect(
-        credits.creditPayment(
-          {
-            ...payment,
-            eventId: 'evt_2',
-            eventType: 'payment_intent.succeeded',
-          },
-          0,
-        ),
+        credits.creditPayment({
+          ...payment,
+          eventId: 'evt_2',
+          eventType: 'payment_intent.succeeded',
+        }),
       ).toBeNull();
       expect(credits.balance('0xa')).toBe(9.6);
       expect(credits.hasStripeEvent('evt_2')).toBe(true);
@@ -481,18 +491,15 @@ describe('CreditsService', () => {
       credits.open('0xa', 1);
       const claim = credits.claimAutoTopup('0xa')!;
       expect(
-        credits.creditPayment(
-          {
-            eventId: 'evt_1',
-            eventType: 'payment_intent.succeeded',
-            owner: '0xa',
-            paymentIntent: 'pi_1',
-            gross: 20,
-            fee: 0.55,
-            autoTopup: claim.id,
-          },
-          0,
-        ),
+        credits.creditPayment({
+          eventId: 'evt_1',
+          eventType: 'payment_intent.succeeded',
+          owner: '0xa',
+          paymentIntent: 'pi_1',
+          gross: 20,
+          fee: 0.55,
+          autoTopup: claim.id,
+        }),
       ).toBe(20.45);
       expect(payments()).toEqual([
         {
@@ -517,5 +524,53 @@ describe('CreditsService', () => {
       expect(claims.reduce((sum, made) => sum + made, 0)).toBe(1);
       expect(payments()).toHaveLength(1);
     }, 30_000);
+  });
+
+  describe('free stories', () => {
+    it("claims an owner's first story only", () => {
+      expect(credits.canClaimFreeStory('0xa')).toBe(true);
+      expect(credits.claimFreeStory('0xa', 'first')).toBe(true);
+      expect(credits.claimFreeStory('0xa', 'second')).toBe(false);
+      expect(credits.canClaimFreeStory('0xa')).toBe(false);
+      expect(credits.freeStory('0xa')).toBe('first');
+      expect(credits.freeStory('0xb')).toBeNull();
+    });
+
+    it('gives no free story to owners who created stories before', () => {
+      credits.claimFreeStory('0xa', 'first');
+      credits.skipFreeStories(['0xa', '0xb']);
+
+      expect(credits.freeStory('0xa')).toBe('first');
+      expect(credits.canClaimFreeStory('0xb')).toBe(false);
+      expect(credits.claimFreeStory('0xb', 'later')).toBe(false);
+      expect(credits.freeStory('0xb')).toBeNull();
+    });
+
+    it('charges a free story to the platform and sums its spend', () => {
+      credits.open('0xa', 5);
+      expect(
+        credits.chargeFreeStory({
+          story: 'first',
+          game: 'G',
+          llmCost: 0.5,
+          amount: 0.65,
+        }),
+      ).toBe(-0.65);
+      credits.chargeFreeStory({ story: 'first', llmCost: 1, amount: 1.3 });
+      credits.charge('0xa', { story: 'first', llmCost: 1, amount: 1.3 });
+
+      expect(credits.freeStorySpent('first')).toBe(1.95);
+      expect(credits.freeStorySpent('other')).toBe(0);
+      expect(credits.balance('0xa')).toBe(3.7);
+      expect(credits.balance(FREE_STORY_OWNER)).toBe(-1.95);
+      expect(ledger(FREE_STORY_OWNER)[0]).toEqual({
+        owner: FREE_STORY_OWNER,
+        story: 'first',
+        game: 'G',
+        kind: 'llm',
+        llm_cost: 500_000,
+        amount: -650_000,
+      });
+    });
   });
 });

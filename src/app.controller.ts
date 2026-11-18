@@ -256,7 +256,11 @@ export class AppController {
     status: 401,
     description: 'Invalid, expired or missing session token',
   })
-  @ApiResponse({ status: 402, description: 'The owner is out of credits' })
+  @ApiResponse({
+    status: 402,
+    description:
+      'The owner is out of credits, after the first story, which is free',
+  })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })
   async createStory(
@@ -272,12 +276,12 @@ export class AppController {
   @ApiBearerAuth()
   @ApiOperation({
     summary:
-      'The signed-in address, its balance (EUR), stories with their spend and auto top-up',
+      'The signed-in address, its balance (EUR), stories with their spend, its free story and auto top-up',
   })
   @ApiResponse({
     status: 200,
     description:
-      'Address, balance, owned stories, each with its LLM spend in EUR, and `autoTopup`: `{ enabled, amount, threshold, hasCard, paused, pausedReason }` (EUR), or null if never set',
+      'Address, balance (a new address opens at 0), owned stories, each with its LLM spend in EUR and `free` when the platform pays for it, `freeStory`: `{ slug, spent, limit }` (EUR; 402 once `spent` reaches `limit`), or null if the address has no free story, and `autoTopup`: `{ enabled, amount, threshold, hasCard, paused, pausedReason }` (EUR), or null if never set',
   })
   @ApiResponse({
     status: 401,
@@ -352,7 +356,8 @@ export class AppController {
   })
   @ApiResponse({
     status: 402,
-    description: "The story's owner is out of credits",
+    description:
+      "The story's owner is out of credits, or the free story reached FREE_STORY_LIMIT",
   })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   async start(@Body() body?: StartDto): Promise<Game> {
@@ -398,7 +403,8 @@ export class AppController {
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
   @ApiResponse({
     status: 402,
-    description: "The story's owner is out of credits",
+    description:
+      "The story's owner is out of credits, or the free story reached FREE_STORY_LIMIT",
   })
   @ApiResponse({ status: 404, description: 'Game not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })

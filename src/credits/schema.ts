@@ -70,6 +70,13 @@ CREATE TABLE IF NOT EXISTS auto_topup_payments (
   created_at TEXT NOT NULL,
   attempted_at TEXT NOT NULL
 );
+
+-- The story an owner got for free, NULL when they created stories before
+CREATE TABLE IF NOT EXISTS free_stories (
+  owner TEXT PRIMARY KEY,
+  story TEXT,
+  created_at TEXT NOT NULL
+);
 `;
 
 // Columns added to tables that existing databases created without them

@@ -15,7 +15,6 @@ import {
   AutoTopupState,
   autoTopupState,
   CreditsService,
-  DEFAULT_CREDITS,
 } from '../credits/credits.service';
 import { openDatabase } from '../credits/schema';
 import { STRIPE_CLIENT } from './stripe.client';
@@ -464,21 +463,18 @@ export class BillingService implements OnModuleDestroy {
       return null;
     }
     const pendingId = Number(intent.metadata.pending_id);
-    const balance = this.creditsService.creditPayment(
-      {
-        eventId: event.id,
-        eventType: event.type,
-        owner,
-        paymentIntent: intent.id,
-        gross: transaction.amount / 100,
-        fee: transaction.fee / 100,
-        autoTopup:
-          kind === 'auto_topup' && Number.isInteger(pendingId)
-            ? pendingId
-            : undefined,
-      },
-      DEFAULT_CREDITS,
-    );
+    const balance = this.creditsService.creditPayment({
+      eventId: event.id,
+      eventType: event.type,
+      owner,
+      paymentIntent: intent.id,
+      gross: transaction.amount / 100,
+      fee: transaction.fee / 100,
+      autoTopup:
+        kind === 'auto_topup' && Number.isInteger(pendingId)
+          ? pendingId
+          : undefined,
+    });
     if (balance === null) {
       this.logger.log(`${intent.id} already credited`);
     } else {

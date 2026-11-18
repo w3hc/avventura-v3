@@ -9,7 +9,9 @@ import { LoggingInterceptor } from './interceptors/logging.interceptor';
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
+  // rawBody keeps the exact payload for Stripe webhook signatures
   const app = await NestFactory.create(AppModule, {
+    rawBody: true,
     logger: ['log', 'error', 'warn', 'debug', 'verbose'],
   });
 

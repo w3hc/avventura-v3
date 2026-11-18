@@ -1,13 +1,26 @@
-import { Body, Controller, Logger, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Logger,
+  Post,
+  RawBodyRequest,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiExcludeEndpoint,
   ApiOperation,
   ApiProperty,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { IsNumber, Max, Min } from 'class-validator';
+import { Request } from 'express';
 import { SessionAddress } from '../auth/session-address.decorator';
 import { SessionGuard } from '../auth/session.guard';
 import { BillingService, MAX_TOPUP, MIN_TOPUP } from './billing.service';
@@ -51,5 +64,17 @@ export class BillingController {
   ): Promise<{ url: string }> {
     this.logger.log('POST /billing/checkout endpoint called');
     return this.billingService.checkout(owner, body.amount);
+  }
+
+  // Called by Stripe only, so kept out of the Swagger documentation
+  @Post('webhook')
+  @HttpCode(HttpStatus.OK)
+  @ApiExcludeEndpoint()
+  async webhook(
+    @Req() request: RawBodyRequest<Request>,
+    @Headers('stripe-signature') signature?: string,
+  ): Promise<{ received: true }> {
+    await this.billingService.handleWebhook(request.rawBody, signature);
+    return { received: true };
   }
 }

@@ -11,6 +11,7 @@ import Database from 'better-sqlite3';
 import Stripe from 'stripe';
 import { DEFAULT_CREDITS } from '../app.service';
 import {
+  AutoTopupClaim,
   AutoTopupSettings,
   AutoTopupState,
   autoTopupState,
@@ -43,6 +44,12 @@ const returnUrl = (
   url.searchParams.set(param, value);
   return url.toString();
 };
+
+// A Stripe error code such as card_declined or authentication_required
+const failureReason = (error: unknown): string =>
+  error instanceof Stripe.errors.StripeError
+    ? (error.code ?? error.rawType ?? error.type)
+    : 'unexpected_error';
 
 const isMissingCustomer = (error: unknown): boolean =>
   error instanceof Stripe.errors.StripeInvalidRequestError &&
@@ -226,6 +233,87 @@ export class BillingService implements OnModuleDestroy {
     return autoTopupState(saved);
   }
 
+  // Claims an auto top-up if this debit calls for one and charges it in the
+  // background. Never throws, so the debit's response doesn't wait or fail.
+  afterDebit(owner: string): void {
+    if (!this.stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+      return;
+    }
+    let claim: AutoTopupClaim | null;
+    try {
+      claim = this.creditsService.claimAutoTopup(owner);
+    } catch (error) {
+      this.logger.error(
+        `Failed to check ${owner}'s auto top-up: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return;
+    }
+    if (claim) {
+      void this.chargeAutoTopup(claim).catch((error: unknown) =>
+        this.logger.error(
+          `Auto top-up ${claim.id} failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        ),
+      );
+    }
+  }
+
+  // Charges a claimed auto top-up to the saved card, off-session. The
+  // idempotency key comes from the claim, so it is charged at most once.
+  // A payment Stripe refuses pauses auto top-up.
+  async chargeAutoTopup(claim: AutoTopupClaim): Promise<void> {
+    const { stripe } = this.configured();
+    const { id, owner, amount, paymentMethod } = claim;
+    let intent: Stripe.PaymentIntent;
+    try {
+      intent = await stripe.paymentIntents.create(
+        {
+          amount: Math.round(amount * 100),
+          currency: 'eur',
+          customer: await this.customerFor(owner),
+          payment_method: paymentMethod,
+          allowed_payment_method_types: ['card'],
+          off_session: true,
+          confirm: true,
+          description: 'Avventura credits, automatic top-up',
+          metadata: {
+            kind: 'auto_topup' satisfies PaymentKind,
+            owner,
+            pending_id: String(id),
+          },
+        },
+        { idempotencyKey: `auto-topup-${id}` },
+      );
+    } catch (error) {
+      const declined =
+        error instanceof Stripe.errors.StripeError
+          ? error.payment_intent
+          : undefined;
+      if (declined) {
+        this.creditsService.startAutoTopup(id, declined.id);
+      }
+      this.pauseAutoTopup(id, owner, failureReason(error));
+      return;
+    }
+    this.creditsService.startAutoTopup(id, intent.id);
+    if (intent.status === 'succeeded' || intent.status === 'processing') {
+      this.logger.log(`Auto top-up of €${amount} for ${owner}: ${intent.id}`);
+      return;
+    }
+    this.pauseAutoTopup(
+      id,
+      owner,
+      intent.status === 'requires_action'
+        ? 'requires_action'
+        : (intent.last_payment_error?.code ?? intent.status),
+    );
+  }
+
+  private pauseAutoTopup(id: number, owner: string, reason: string): void {
+    if (this.creditsService.failAutoTopup(id, owner, reason)) {
+      this.logger.warn(`Auto top-up paused for ${owner}: ${reason}`);
+    }
+  }
+
   // Verifies the signature of a webhook payload and handles its event
   async handleWebhook(
     rawBody: Buffer | undefined,
@@ -247,7 +335,27 @@ export class BillingService implements OnModuleDestroy {
     }
     if (event.type === 'checkout.session.completed') {
       await this.onCheckoutCompleted(event);
+    } else if (event.type === 'payment_intent.succeeded') {
+      const intent = event.data.object;
+      if (intent.metadata.kind === 'auto_topup') {
+        await this.creditPaymentIntent(event, intent.id, 'auto_topup');
+      }
+    } else if (event.type === 'payment_intent.payment_failed') {
+      this.onAutoTopupFailed(event.data.object);
     }
+  }
+
+  private onAutoTopupFailed(intent: Stripe.PaymentIntent): void {
+    const id = Number(intent.metadata.pending_id);
+    const owner = intent.metadata.owner?.toLowerCase();
+    if (intent.metadata.kind !== 'auto_topup' || !owner || !id) {
+      return;
+    }
+    this.pauseAutoTopup(
+      id,
+      owner,
+      intent.last_payment_error?.code ?? 'payment_failed',
+    );
   }
 
   private async onCheckoutCompleted(
@@ -346,6 +454,7 @@ export class BillingService implements OnModuleDestroy {
       );
       return null;
     }
+    const pendingId = Number(intent.metadata.pending_id);
     const balance = this.creditsService.creditPayment(
       {
         eventId: event.id,
@@ -354,6 +463,10 @@ export class BillingService implements OnModuleDestroy {
         paymentIntent: intent.id,
         gross: transaction.amount / 100,
         fee: transaction.fee / 100,
+        autoTopup:
+          kind === 'auto_topup' && Number.isInteger(pendingId)
+            ? pendingId
+            : undefined,
       },
       DEFAULT_CREDITS,
     );

@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- A story's owner is stored as `ownerAddress` instead of `creatorAddress`; on startup, a `creatorAddress` key in `stories/stories.json` is renamed, and the file is only written when something changed ([#52](https://github.com/w3hc/avventura-v3/issues/52)).
+- `DEFAULT_OWNER_ADDRESS` replaces `OWNER_ADDRESS` as the owner of stories without an `ownerAddress` ([#52](https://github.com/w3hc/avventura-v3/issues/52)).
+- Errors, Swagger descriptions and logs say "owner" instead of "creator", such as 403 "Only the story owner can edit it" ([#52](https://github.com/w3hc/avventura-v3/issues/52)).
 - Balances belong to the story's creator (`creatorAddress`) instead of the story: one balance per address, charged by every story it owns. Stories without a `creatorAddress` belong to `OWNER_ADDRESS`. Ledger rows keep the story they were charged for ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
 - Story creation is priced from the tokens it used, written to `costs.json` and charged to the creator, even when the response is not a valid story ([#42](https://github.com/w3hc/avventura-v3/issues/42)).
 - On startup, each story's balance moves to its owner as a pair of `adjustment` ledger rows, keeping the total; a story whose balance is already 0 is skipped, so restarting moves nothing ([#42](https://github.com/w3hc/avventura-v3/issues/42)).

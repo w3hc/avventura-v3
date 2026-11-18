@@ -109,7 +109,7 @@ curl -X POST localhost:3000/billing/checkout \
 # {"url": "https://checkout.stripe.com/c/pay/cs_test_..."}
 ```
 
-The session is a card payment in EUR for one "Avventura credits" item, with metadata `{ "kind": "topup", "owner": "<address>" }` on the session and its PaymentIntent. It creates a paid invoice with the footer "TVA non applicable, art. 293 B du CGI"; no VAT is charged. Each address has one Stripe Customer, created on its first checkout and stored in the `stripe_customers` table.
+The session is a card payment in EUR for one "Avventura credits" item, with metadata `{ "kind": "topup", "owner": "<address>" }` on the session and its PaymentIntent. It creates a paid invoice with the footer "TVA non applicable, art. 293 B du CGI"; no VAT is charged. Each address has one Stripe Customer, created on its first checkout and stored in the `stripe_customers` table. If Stripe no longer has it, for example after switching from test to live keys, a new one replaces it.
 
 Stripe then calls `POST /billing/webhook`, which checks the `Stripe-Signature` header against the raw body (400 when missing or wrong). On `checkout.session.completed` for a paid `topup` session, it reads the payment's [balance transaction](https://docs.stripe.com/api/balance_transactions/object) and credits its net, the amount paid minus the Stripe fee, so the creator pays the fee. A balance that doesn't exist yet opens at `100` first, like `POST /credits`. Other events and sessions are acknowledged and ignored.
 
@@ -135,7 +135,7 @@ In the [Stripe Dashboard](https://dashboard.stripe.com/webhooks), add a webhook 
 - `payment_intent.succeeded`
 - `payment_intent.payment_failed`
 
-and set its signing secret as `STRIPE_WEBHOOK_SECRET` on the server, with the live `STRIPE_SECRET_KEY`. The account must settle in EUR: a payment settled in another currency isn't credited and returns 500.
+The two `payment_intent` events are for automatic top-ups; until then they are acknowledged and ignored. Set its signing secret as `STRIPE_WEBHOOK_SECRET` on the server, with the live `STRIPE_SECRET_KEY`. The account must settle in EUR: a payment settled in another currency is logged as an error and acknowledged without crediting, to be credited by hand.
 
 ## Story ownership
 

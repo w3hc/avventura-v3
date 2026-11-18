@@ -58,6 +58,28 @@ describe('openDatabase', () => {
       'processed_at',
     ]);
     expect(columns(db, 'stripe_customers')).toEqual(['owner', 'customer_id']);
+    expect(columns(db, 'auto_topups')).toEqual([
+      'owner',
+      'enabled',
+      'amount',
+      'threshold',
+      'payment_method',
+      'paused_reason',
+      'updated_at',
+    ]);
+    db.close();
+  });
+
+  it('allows one pending auto top-up per owner', () => {
+    const db = openDatabase(path);
+    const insert = db.prepare(
+      `INSERT INTO auto_topup_payments (owner, amount, status, created_at)
+       VALUES (?, 10000000, ?, '2026-01-01')`,
+    );
+    insert.run('0xa', 'pending');
+    insert.run('0xa', 'failed');
+    insert.run('0xb', 'pending');
+    expect(() => insert.run('0xa', 'pending')).toThrow(/UNIQUE/);
     db.close();
   });
 

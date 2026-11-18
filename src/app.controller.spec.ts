@@ -39,6 +39,15 @@ describe('AppController', () => {
     await app.close();
   });
 
+  const llmRows = (story: string) =>
+    app
+      .get(CreditsService)
+      ['statements']!.db.prepare(
+        `SELECT llm_cost AS llmCost, amount FROM ledger
+         WHERE kind = 'llm' AND story = ? ORDER BY id`,
+      )
+      .all(story);
+
   describe('getModels', () => {
     it('should return models', async () => {
       const mockResponse = modelsData as {
@@ -775,6 +784,9 @@ describe('AppController', () => {
         ),
       );
 
+      jest
+        .spyOn(appController['appService']['pricingService'], 'costEur')
+        .mockReturnValue(0.1);
       const writeCost = mockWriteCost();
 
       const story = await appController['appService'].createStory(
@@ -789,14 +801,15 @@ describe('AppController', () => {
       expect(readStories()[2]).not.toHaveProperty('credits');
 
       const credits = app.get(CreditsService);
-      const { 'new-story': spent } = credits.spentByStory(['new-story']);
-      expect(spent).toBeGreaterThan(0);
+      expect(credits.spentByStory(['new-story'])).toEqual({
+        'new-story': 0.13,
+      });
       expect(credits.balance('new-story')).toBeNull();
-      expect(credits.balance(OWNER)).toBeCloseTo(100 - spent, 6);
-      expect(writeCost).toHaveBeenCalledWith(
-        'story:new-story',
-        expect.closeTo(spent, 6),
-      );
+      expect(credits.balance(OWNER)).toBe(99.87);
+      expect(llmRows('new-story')).toEqual([
+        { llmCost: 100_000, amount: -130_000 },
+      ]);
+      expect(writeCost).toHaveBeenCalledWith('story:new-story', 0.1);
     });
 
     it('refuses to create a story with 402 when the owner is out of credits', async () => {
@@ -1123,6 +1136,7 @@ describe('AppController', () => {
         generateSteps: (...args: unknown[]) => Promise<unknown>;
         readGame: (gameId: string) => Game | null;
         writeGame: (game: Game) => void;
+        writeCost: (gameId: string, cost: number) => void;
         updateGame: (
           gameId: string,
           previously: string,
@@ -1228,9 +1242,9 @@ describe('AppController', () => {
         appController.getMe(OWNER.toUpperCase().replace('0X', '0x')),
       ).toEqual({
         address: OWNER,
-        balance: 14.25,
+        balance: 14.025,
         stories: [
-          { slug: 'funded', title: undefined, spent: 0.75 },
+          { slug: 'funded', title: undefined, spent: 0.975 },
           { slug: 'second', title: undefined, spent: 0 },
         ],
       });
@@ -1396,20 +1410,89 @@ describe('AppController', () => {
       expect(cost).toBeCloseTo((2 + 2.5 + 0.2 + 10) * 0.5);
     });
 
-    it('should deduct the request cost from the owner and keep the story', () => {
+    it('should deduct the request price from the owner and keep the story', () => {
       const service = internals(appController['appService']);
       service.chargeOwner(OWNER, 0.0123456, 'funded', 'GAME');
       service.chargeOwner(OWNER, 0.5, 'second', 'GAME');
-      expect(balance(OWNER)).toBe(14.487654);
+      expect(balance(OWNER)).toBe(14.333951);
       expect(
         app.get(CreditsService).spentByStory(['funded', 'second']),
-      ).toEqual({ funded: 0.012346, second: 0.5 });
+      ).toEqual({ funded: 0.016049, second: 0.65 });
+      expect(llmRows('funded')).toEqual([{ llmCost: 12_346, amount: -16_049 }]);
+    });
+
+    it('should charge the price of a /start request', async () => {
+      const service = internals(appController['appService']);
+      jest.spyOn(service, 'generateSteps').mockResolvedValue({
+        aiResponse: { currentStep: step, nextSteps: [step, step, step] },
+        cost: 0.1,
+      });
+      jest.spyOn(service, 'writeGame').mockImplementation(() => undefined);
+      const writeCost = jest
+        .spyOn(service, 'writeCost')
+        .mockImplementation(() => undefined);
+
+      const game = await appController['appService'].start('funded', 'en');
+
+      expect(game.spent).toBe(0.13);
+      expect(balance(OWNER)).toBe(14.87);
+      expect(llmRows('funded')).toEqual([
+        { llmCost: 100_000, amount: -130_000 },
+      ]);
+      expect(writeCost).toHaveBeenCalledWith(game.id, 0.1);
+    });
+
+    it('should charge the price of a /move request', async () => {
+      const service = internals(appController['appService']);
+      jest.spyOn(service, 'readGame').mockReturnValue({
+        id: 'GAME',
+        story: 'funded',
+        language: 'en',
+        previously: '',
+        currentStep: { ...step, options: ['A', 'B', 'C'] },
+        nextSteps: [step, step, step],
+        spent: 0.13,
+      });
+      jest.spyOn(service, 'generateSteps').mockResolvedValue({
+        aiResponse: { previously: 'recap', nextSteps: [step, step, step] },
+        cost: 0.1,
+      });
+      jest.spyOn(service, 'writeGame').mockImplementation(() => undefined);
+      const writeCost = jest
+        .spyOn(service, 'writeCost')
+        .mockImplementation(() => undefined);
+
+      const result = await appController['appService'].move('GAME', 0);
+
+      expect(result.spent).toBe(0.26);
+      expect(balance(OWNER)).toBe(14.87);
+      expect(llmRows('funded')).toEqual([
+        { llmCost: 100_000, amount: -130_000 },
+      ]);
+      expect(writeCost).toHaveBeenCalledWith('GAME', 0.1);
+    });
+
+    it('should charge the LLM cost alone with a zero SERVICE_FEE_RATE', () => {
+      process.env.SERVICE_FEE_RATE = '0';
+      try {
+        const zeroFee = new AppService(
+          app.get(PricingService),
+          app.get(CreditsService),
+        );
+        internals(zeroFee).chargeOwner(OWNER, 0.1, 'funded');
+        expect(balance(OWNER)).toBe(14.9);
+        expect(llmRows('funded')).toEqual([
+          { llmCost: 100_000, amount: -100_000 },
+        ]);
+      } finally {
+        delete process.env.SERVICE_FEE_RATE;
+      }
     });
 
     it.each([
       [0.5, 0.75],
       [undefined, 0.25],
-    ])('should add the cost to a game spent of %p', (spent, expected) => {
+    ])('should add the price to a game spent of %p', (spent, expected) => {
       const service = internals(appController['appService']);
       const game = {
         id: 'GAME',

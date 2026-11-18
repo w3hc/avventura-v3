@@ -15,6 +15,19 @@ interface Movement {
   story?: string;
   game?: string;
   llmCost?: number;
+  gross?: number;
+  fee?: number;
+  stripePaymentIntent?: string;
+}
+
+// A paid Stripe PaymentIntent, amounts in EUR from its balance transaction
+export interface StripePayment {
+  eventId: string;
+  eventType: string;
+  owner: string;
+  paymentIntent: string;
+  gross: number;
+  fee: number;
 }
 
 interface Statements {
@@ -24,6 +37,8 @@ interface Statements {
   open: (owner: string, amount: number, story?: string) => number;
   moveStoryBalance: (slug: string, owner: string, initial: number) => number;
   spent: Database.Statement<[string], { story: string; amount: number }>;
+  stripeEvent: Database.Statement<[string], { id: string }>;
+  creditPayment: (payment: StripePayment, opening: number) => number | null;
 }
 
 @Injectable()
@@ -55,9 +70,23 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
       'UPDATE balances SET amount = amount + ? WHERE owner = ? RETURNING amount',
     );
     const insertLedger = db.prepare(
-      `INSERT INTO ledger (owner, story, game, kind, llm_cost, amount, created_at)
-       VALUES (@owner, @story, @game, @kind, @llmCost, @amount, @createdAt)`,
+      `INSERT INTO ledger (owner, story, game, kind, llm_cost, amount, created_at,
+         gross, fee, stripe_payment_intent)
+       VALUES (@owner, @story, @game, @kind, @llmCost, @amount, @createdAt,
+         @gross, @fee, @stripePaymentIntent)`,
     );
+    const stripeEvent = db.prepare<[string], { id: string }>(
+      'SELECT id FROM stripe_events WHERE id = ?',
+    );
+    const insertStripeEvent = db.prepare<[string, string, string]>(
+      `INSERT INTO stripe_events (id, type, processed_at) VALUES (?, ?, ?)
+       ON CONFLICT DO NOTHING`,
+    );
+    const paymentCredited = db.prepare<[string], { id: number }>(
+      'SELECT id FROM ledger WHERE stripe_payment_intent = ?',
+    );
+    const optionalMicro = (eur?: number): number | null =>
+      eur === undefined ? null : toMicro(eur);
 
     const move = (movement: Movement): number => {
       const amount = toMicro(movement.amount);
@@ -70,10 +99,12 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
         story: movement.story ?? null,
         game: movement.game ?? null,
         kind: movement.kind,
-        llmCost:
-          movement.llmCost === undefined ? null : toMicro(movement.llmCost),
+        llmCost: optionalMicro(movement.llmCost),
         amount,
         createdAt: new Date().toISOString(),
+        gross: optionalMicro(movement.gross),
+        fee: optionalMicro(movement.fee),
+        stripePaymentIntent: movement.stripePaymentIntent ?? null,
       });
       return fromMicro(row.amount);
     };
@@ -108,6 +139,29 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
         return amount;
       },
     );
+    const creditPayment = db.transaction(
+      (payment: StripePayment, opening: number): number | null => {
+        const now = new Date().toISOString();
+        if (
+          insertStripeEvent.run(payment.eventId, payment.eventType, now)
+            .changes === 0 ||
+          paymentCredited.get(payment.paymentIntent)
+        ) {
+          return null;
+        }
+        if (createBalance.run(payment.owner).changes === 1 && opening !== 0) {
+          move({ owner: payment.owner, kind: 'adjustment', amount: opening });
+        }
+        return move({
+          owner: payment.owner,
+          kind: 'topup',
+          amount: payment.gross - payment.fee,
+          gross: payment.gross,
+          fee: payment.fee,
+          stripePaymentIntent: payment.paymentIntent,
+        });
+      },
+    );
     const spent = db.prepare<[string], { story: string; amount: number }>(
       `SELECT story, -SUM(amount) AS amount FROM ledger
        WHERE kind = 'llm' AND story IN (SELECT value FROM json_each(?))
@@ -122,6 +176,9 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
       moveStoryBalance: (slug, owner, initial) =>
         moveStoryBalance.immediate(slug, owner, initial),
       spent,
+      stripeEvent,
+      creditPayment: (payment, opening) =>
+        creditPayment.immediate(payment, opening),
     };
     return this.statements;
   }
@@ -157,6 +214,17 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
   // story has none yet. Returns the amount moved, 0 once already moved.
   moveStoryBalance(slug: string, owner: string, initial: number): number {
     return this.prepare().moveStoryBalance(slug, owner, initial);
+  }
+
+  hasStripeEvent(eventId: string): boolean {
+    return this.prepare().stripeEvent.get(eventId) !== undefined;
+  }
+
+  // Records the event and credits the payment's net (gross - fee) as a top-up,
+  // opening a missing balance at `opening` EUR first. Returns the new balance,
+  // or null when the event or the PaymentIntent was already processed.
+  creditPayment(payment: StripePayment, opening: number): number | null {
+    return this.prepare().creditPayment(payment, opening);
   }
 
   // Total LLM debits per story in EUR, across every owner it has had

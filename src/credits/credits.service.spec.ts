@@ -229,4 +229,76 @@ describe('CreditsService', () => {
       unplayed: 0,
     });
   });
+
+  describe('creditPayment', () => {
+    const payment = {
+      eventId: 'evt_1',
+      eventType: 'checkout.session.completed',
+      owner: '0xa',
+      paymentIntent: 'pi_1',
+      gross: 10,
+      fee: 0.4,
+    };
+
+    const paymentRows = (owner: string) => {
+      const db = new Database(path, { readonly: true });
+      const rows = db
+        .prepare(
+          `SELECT kind, amount, gross, fee, stripe_payment_intent FROM ledger
+           WHERE owner = ? ORDER BY id`,
+        )
+        .all(owner);
+      db.close();
+      return rows;
+    };
+
+    it('credits the net and stores the gross and the fee', () => {
+      credits.open('0xa', 1);
+      expect(credits.creditPayment(payment, 100)).toBe(10.6);
+      expect(paymentRows('0xa')).toEqual([
+        {
+          kind: 'adjustment',
+          amount: 1_000_000,
+          gross: null,
+          fee: null,
+          stripe_payment_intent: null,
+        },
+        {
+          kind: 'topup',
+          amount: 9_600_000,
+          gross: 10_000_000,
+          fee: 400_000,
+          stripe_payment_intent: 'pi_1',
+        },
+      ]);
+      expect(credits.hasStripeEvent('evt_1')).toBe(true);
+    });
+
+    it('opens a missing balance at the opening amount first', () => {
+      expect(credits.creditPayment(payment, 100)).toBe(109.6);
+      expect(ledgerSum('0xa')).toBe(109.6);
+    });
+
+    it('credits nothing for a replayed event', () => {
+      credits.creditPayment(payment, 0);
+      expect(credits.creditPayment(payment, 0)).toBeNull();
+      expect(credits.balance('0xa')).toBe(9.6);
+    });
+
+    it('credits a PaymentIntent once across events', () => {
+      credits.creditPayment(payment, 0);
+      expect(
+        credits.creditPayment(
+          {
+            ...payment,
+            eventId: 'evt_2',
+            eventType: 'payment_intent.succeeded',
+          },
+          0,
+        ),
+      ).toBeNull();
+      expect(credits.balance('0xa')).toBe(9.6);
+      expect(credits.hasStripeEvent('evt_2')).toBe(true);
+    });
+  });
 });

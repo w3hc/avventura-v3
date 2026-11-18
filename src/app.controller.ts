@@ -173,7 +173,7 @@ class EditStoryDto {
 
   @ApiProperty({
     description:
-      'The fields to update (partial story data); creatorAddress, credits, sessions, requests and created_at are ignored',
+      'The fields to update (partial story data); ownerAddress, credits, sessions, requests and created_at are ignored',
     required: false,
     example: {
       title: 'Updated Title',
@@ -186,7 +186,7 @@ class EditStoryDto {
 
 export class AddCreditsDto {
   @ApiProperty({
-    description: 'The creator address to top up',
+    description: 'The owner address to top up',
     example: '0x1111111111111111111111111111111111111111',
   })
   @IsEthereumAddress()
@@ -271,15 +271,15 @@ export class AppController {
     status: 401,
     description: 'Invalid or missing SIWE signature',
   })
-  @ApiResponse({ status: 402, description: 'The creator is out of credits' })
+  @ApiResponse({ status: 402, description: 'The owner is out of credits' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   @ApiResponse({ status: 502, description: 'Bad gateway - upstream API error' })
   async createStory(
     @Body() body: CreateStoryDto,
-    @SiweAddress() creatorAddress: string,
+    @SiweAddress() ownerAddress: string,
   ): Promise<StoryData> {
     this.logger.log('POST /stories endpoint called');
-    return this.appService.createStory(body.prompt, creatorAddress);
+    return this.appService.createStory(body.prompt, ownerAddress);
   }
 
   @Get('me')
@@ -308,7 +308,7 @@ export class AppController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(SiweAuthGuard)
   @ApiOperation({
-    summary: "Edit an existing story, signed by the story's creator",
+    summary: "Edit an existing story, signed by the story's owner",
   })
   @ApiHeader(SIWE_HEADERS[0])
   @ApiHeader(SIWE_HEADERS[1])
@@ -324,7 +324,7 @@ export class AppController {
   })
   @ApiResponse({
     status: 403,
-    description: "Signer is not the story's creatorAddress",
+    description: "Signer is not the story's ownerAddress",
   })
   @ApiResponse({ status: 404, description: 'Story not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })
@@ -341,7 +341,7 @@ export class AppController {
   @Post('credits')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: "Add credits (EUR) to a creator's balance",
+    summary: "Add credits (EUR) to an owner's balance",
   })
   @ApiBody({ type: AddCreditsDto })
   @ApiResponse({
@@ -368,7 +368,7 @@ export class AppController {
   })
   @ApiResponse({
     status: 402,
-    description: "The story's creator is out of credits",
+    description: "The story's owner is out of credits",
   })
   @ApiResponse({ status: 500, description: 'Internal server error' })
   async start(@Body() body?: StartDto): Promise<Game> {
@@ -414,7 +414,7 @@ export class AppController {
   @ApiResponse({ status: 400, description: 'Bad request - invalid input' })
   @ApiResponse({
     status: 402,
-    description: "The story's creator is out of credits",
+    description: "The story's owner is out of credits",
   })
   @ApiResponse({ status: 404, description: 'Game not found' })
   @ApiResponse({ status: 500, description: 'Internal server error' })

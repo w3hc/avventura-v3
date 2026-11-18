@@ -50,6 +50,26 @@ CREATE TABLE IF NOT EXISTS stripe_events (
   type TEXT NOT NULL,
   processed_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS auto_topups (
+  owner TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+  amount INTEGER NOT NULL,
+  threshold INTEGER NOT NULL,
+  payment_method TEXT,
+  paused_reason TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auto_topup_payments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'succeeded', 'failed')),
+  payment_intent TEXT,
+  created_at TEXT NOT NULL,
+  attempted_at TEXT NOT NULL
+);
 `;
 
 // Columns added to tables that existing databases created without them
@@ -64,6 +84,9 @@ const ADDED_COLUMNS: Record<string, Record<string, string>> = {
 const INDEXES = `
 CREATE UNIQUE INDEX IF NOT EXISTS ledger_stripe_payment_intent
   ON ledger (stripe_payment_intent) WHERE stripe_payment_intent IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS auto_topup_payments_pending
+  ON auto_topup_payments (owner) WHERE status = 'pending';
 `;
 
 function migrate(db: Database.Database): void {

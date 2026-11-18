@@ -14,16 +14,19 @@ interface LedgerRow {
   amount: number;
 }
 
-// Charges `count` times from a separate thread with its own connection
-const chargeFromWorker = (path: string, count: number): Promise<void> =>
+// Charges `count` times from a separate thread with its own connection,
+// claiming an auto top-up after each debit. Resolves with the claims made.
+const chargeFromWorker = (path: string, count: number): Promise<number> =>
   new Promise((resolve, reject) => {
+    let claims = 0;
     const worker = new Worker(
       `
-      const { workerData } = require('worker_threads');
+      const { parentPort, workerData } = require('worker_threads');
       require('ts-node').register({ transpileOnly: true });
       process.env.DATABASE_PATH = workerData.path;
       const { CreditsService } = require(workerData.service);
       const credits = new CreditsService();
+      let claims = 0;
       for (let i = 0; i < workerData.count; i++) {
         credits.charge('story', {
           story: 'story',
@@ -31,8 +34,12 @@ const chargeFromWorker = (path: string, count: number): Promise<void> =>
           llmCost: 0.01,
           amount: 0.01,
         });
+        if (credits.claimAutoTopup('story')) {
+          claims++;
+        }
       }
       credits.onModuleDestroy();
+      parentPort.postMessage(claims);
       `,
       {
         eval: true,
@@ -43,9 +50,12 @@ const chargeFromWorker = (path: string, count: number): Promise<void> =>
         },
       },
     );
+    worker.on('message', (made: number) => (claims = made));
     worker.on('error', reject);
     worker.on('exit', (code) =>
-      code === 0 ? resolve() : reject(new Error(`worker exited with ${code}`)),
+      code === 0
+        ? resolve(claims)
+        : reject(new Error(`worker exited with ${code}`)),
     );
   });
 
@@ -300,5 +310,212 @@ describe('CreditsService', () => {
       expect(credits.balance('0xa')).toBe(9.6);
       expect(credits.hasStripeEvent('evt_2')).toBe(true);
     });
+  });
+
+  describe('auto top-up', () => {
+    const settings = { enabled: true, amount: 20, threshold: 5 };
+    const event = { id: 'evt_setup', type: 'checkout.session.completed' };
+
+    const payments = () => {
+      const db = new Database(path, { readonly: true });
+      const rows = db
+        .prepare(
+          'SELECT owner, amount, status, payment_intent FROM auto_topup_payments ORDER BY id',
+        )
+        .all();
+      db.close();
+      return rows;
+    };
+
+    const enable = (owner = '0xa') => {
+      credits.setAutoTopup(owner, settings);
+      credits.saveAutoTopupCard(owner, 'pm_1', { ...event, id: owner });
+    };
+
+    it('has no settings for an unknown owner', () => {
+      expect(credits.autoTopup('0xa')).toBeNull();
+    });
+
+    it('saves, changes and disables the settings', () => {
+      expect(credits.setAutoTopup('0xa', settings)).toEqual({
+        ...settings,
+        paymentMethod: null,
+        pausedReason: null,
+      });
+      expect(
+        credits.setAutoTopup('0xa', {
+          enabled: true,
+          amount: 50,
+          threshold: 0,
+        }),
+      ).toMatchObject({ enabled: true, amount: 50, threshold: 0 });
+      expect(credits.setAutoTopup('0xa', { enabled: false })).toMatchObject({
+        enabled: false,
+        amount: 50,
+        threshold: 0,
+      });
+    });
+
+    it('opens disabled at the defaults when a card is saved first', () => {
+      expect(credits.saveAutoTopupCard('0xa', 'pm_1', event)).toBe(true);
+      expect(credits.autoTopup('0xa')).toEqual({
+        enabled: false,
+        amount: 10,
+        threshold: 5,
+        paymentMethod: 'pm_1',
+        pausedReason: null,
+      });
+    });
+
+    it('saves a card once per event', () => {
+      credits.saveAutoTopupCard('0xa', 'pm_1', event);
+      expect(credits.saveAutoTopupCard('0xa', 'pm_2', event)).toBe(false);
+      expect(credits.autoTopup('0xa')?.paymentMethod).toBe('pm_1');
+      expect(credits.hasStripeEvent('evt_setup')).toBe(true);
+    });
+
+    it('claims once the balance is at or below the threshold', () => {
+      enable();
+      credits.open('0xa', 6);
+      expect(credits.claimAutoTopup('0xa')).toBeNull();
+      credits.charge('0xa', { llmCost: 1, amount: 1 });
+      expect(credits.claimAutoTopup('0xa')).toEqual({
+        id: 1,
+        owner: '0xa',
+        amount: 20,
+        paymentMethod: 'pm_1',
+      });
+      expect(payments()).toEqual([
+        {
+          owner: '0xa',
+          amount: 20_000_000,
+          status: 'pending',
+          payment_intent: null,
+        },
+      ]);
+    });
+
+    it('claims one pending auto top-up at a time', () => {
+      enable();
+      enable('0xb');
+      credits.open('0xa', 1);
+      credits.open('0xb', 1);
+      expect(credits.claimAutoTopup('0xa')).not.toBeNull();
+      expect(credits.claimAutoTopup('0xa')).toBeNull();
+      expect(credits.claimAutoTopup('0xb')).not.toBeNull();
+    });
+
+    it('claims a pending auto top-up again once it is stale', () => {
+      jest.useFakeTimers({ now: new Date('2026-11-18T10:00:00Z') });
+      try {
+        enable();
+        credits.open('0xa', 1);
+        const claim = credits.claimAutoTopup('0xa')!;
+        jest.setSystemTime(new Date('2026-11-18T10:09:59Z'));
+        expect(credits.claimAutoTopup('0xa')).toBeNull();
+        jest.setSystemTime(new Date('2026-11-18T10:10:01Z'));
+        expect(credits.claimAutoTopup('0xa')).toEqual(claim);
+        expect(credits.claimAutoTopup('0xa')).toBeNull();
+        credits.startAutoTopup(claim.id, 'pi_1');
+        jest.setSystemTime(new Date('2026-11-18T11:00:00Z'));
+        expect(credits.claimAutoTopup('0xa')).toBeNull();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('claims nothing when disabled', () => {
+      enable();
+      credits.setAutoTopup('0xa', { enabled: false });
+      credits.open('0xa', 1);
+      expect(credits.claimAutoTopup('0xa')).toBeNull();
+    });
+
+    it('claims nothing without a card', () => {
+      credits.setAutoTopup('0xa', settings);
+      credits.open('0xa', 1);
+      expect(credits.claimAutoTopup('0xa')).toBeNull();
+    });
+
+    it('claims nothing while paused', () => {
+      enable();
+      credits.open('0xa', 1);
+      credits.failAutoTopup(credits.claimAutoTopup('0xa')!.id, '0xa', 'x');
+      expect(credits.claimAutoTopup('0xa')).toBeNull();
+    });
+
+    it('fails a pending auto top-up once and pauses it', () => {
+      enable();
+      credits.open('0xa', 1);
+      const claim = credits.claimAutoTopup('0xa')!;
+      credits.startAutoTopup(claim.id, 'pi_1');
+      expect(credits.failAutoTopup(claim.id, '0xa', 'card_declined')).toBe(
+        true,
+      );
+      expect(credits.failAutoTopup(claim.id, '0xa', 'other')).toBe(false);
+      expect(credits.autoTopup('0xa')?.pausedReason).toBe('card_declined');
+      expect(payments()).toEqual([
+        {
+          owner: '0xa',
+          amount: 20_000_000,
+          status: 'failed',
+          payment_intent: 'pi_1',
+        },
+      ]);
+    });
+
+    it('resumes when a card is saved or the settings change', () => {
+      enable();
+      credits.open('0xa', 1);
+      credits.failAutoTopup(credits.claimAutoTopup('0xa')!.id, '0xa', 'x');
+      credits.saveAutoTopupCard('0xa', 'pm_2', { ...event, id: 'evt_2' });
+      expect(credits.autoTopup('0xa')?.pausedReason).toBeNull();
+      credits.failAutoTopup(credits.claimAutoTopup('0xa')!.id, '0xa', 'x');
+      credits.setAutoTopup('0xa', { enabled: true });
+      expect(credits.autoTopup('0xa')?.pausedReason).toBeNull();
+      expect(credits.claimAutoTopup('0xa')).not.toBeNull();
+    });
+
+    it('marks the auto top-up succeeded with its credit', () => {
+      enable();
+      credits.open('0xa', 1);
+      const claim = credits.claimAutoTopup('0xa')!;
+      expect(
+        credits.creditPayment(
+          {
+            eventId: 'evt_1',
+            eventType: 'payment_intent.succeeded',
+            owner: '0xa',
+            paymentIntent: 'pi_1',
+            gross: 20,
+            fee: 0.55,
+            autoTopup: claim.id,
+          },
+          0,
+        ),
+      ).toBe(20.45);
+      expect(payments()).toEqual([
+        {
+          owner: '0xa',
+          amount: 20_000_000,
+          status: 'succeeded',
+          payment_intent: 'pi_1',
+        },
+      ]);
+      credits.charge('0xa', { llmCost: 20, amount: 20 });
+      expect(credits.claimAutoTopup('0xa')).not.toBeNull();
+    });
+
+    it('claims once across concurrent threads', async () => {
+      enable('story');
+      credits.open('story', 6);
+
+      const claims = await Promise.all(
+        [1, 2, 3, 4].map(() => chargeFromWorker(path, 50)),
+      );
+
+      expect(claims.reduce((sum, made) => sum + made, 0)).toBe(1);
+      expect(payments()).toHaveLength(1);
+    }, 30_000);
   });
 });

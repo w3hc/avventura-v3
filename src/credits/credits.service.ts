@@ -28,6 +28,68 @@ export interface StripePayment {
   paymentIntent: string;
   gross: number;
   fee: number;
+  // The auto top-up payment row this PaymentIntent pays, if any
+  autoTopup?: number;
+}
+
+// Automatic top-up settings, amounts in EUR
+export interface AutoTopup {
+  enabled: boolean;
+  amount: number;
+  threshold: number;
+  paymentMethod: string | null;
+  pausedReason: string | null;
+}
+
+export interface AutoTopupSettings {
+  enabled: boolean;
+  amount?: number;
+  threshold?: number;
+}
+
+// A pending auto top-up to charge to the owner's saved card
+export interface AutoTopupClaim {
+  id: number;
+  owner: string;
+  amount: number;
+  paymentMethod: string;
+}
+
+// The balance a new owner opens at
+export const DEFAULT_CREDITS = 100;
+
+// What GET /me and PUT /billing/auto-topup report, amounts in EUR
+export interface AutoTopupState {
+  enabled: boolean;
+  amount: number;
+  threshold: number;
+  hasCard: boolean;
+  paused: boolean;
+  pausedReason: string | null;
+}
+
+export const autoTopupState = (settings: AutoTopup): AutoTopupState => ({
+  enabled: settings.enabled,
+  amount: settings.amount,
+  threshold: settings.threshold,
+  hasCard: settings.paymentMethod !== null,
+  paused: settings.pausedReason !== null,
+  pausedReason: settings.pausedReason,
+});
+
+// A pending auto top-up that never reached Stripe (restart, Stripe outage)
+// is charged again after this long, with the same idempotency key
+export const AUTO_TOPUP_RETRY_MS = 10 * 60 * 1000;
+
+// Used until the creator sets their own: add €10 when credits reach €5
+export const DEFAULT_AUTO_TOPUP = { amount: 10, threshold: 5 };
+
+interface AutoTopupRow {
+  enabled: number;
+  amount: number;
+  threshold: number;
+  payment_method: string | null;
+  paused_reason: string | null;
 }
 
 interface Statements {
@@ -39,6 +101,16 @@ interface Statements {
   spent: Database.Statement<[string], { story: string; amount: number }>;
   stripeEvent: Database.Statement<[string], { id: string }>;
   creditPayment: (payment: StripePayment, opening: number) => number | null;
+  autoTopup: Database.Statement<[string], AutoTopupRow>;
+  setAutoTopup: (owner: string, settings: AutoTopupSettings) => void;
+  saveAutoTopupCard: (
+    owner: string,
+    paymentMethod: string,
+    event: { id: string; type: string },
+  ) => boolean;
+  claimAutoTopup: (owner: string) => AutoTopupClaim | null;
+  startAutoTopup: Database.Statement<[string, number]>;
+  failAutoTopup: (id: number, owner: string, reason: string) => boolean;
 }
 
 @Injectable()
@@ -84,6 +156,57 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
     );
     const paymentCredited = db.prepare<[string], { id: number }>(
       'SELECT id FROM ledger WHERE stripe_payment_intent = ?',
+    );
+    const autoTopup = db.prepare<[string], AutoTopupRow>(
+      `SELECT enabled, amount, threshold, payment_method, paused_reason
+       FROM auto_topups WHERE owner = ?`,
+    );
+    const upsertAutoTopup = db.prepare(
+      `INSERT INTO auto_topups (owner, enabled, amount, threshold, updated_at)
+       VALUES (@owner, @enabled, @amount, @threshold, @now)
+       ON CONFLICT (owner) DO UPDATE SET enabled = excluded.enabled,
+         amount = excluded.amount, threshold = excluded.threshold,
+         paused_reason = NULL, updated_at = excluded.updated_at`,
+    );
+    const upsertAutoTopupCard = db.prepare(
+      `INSERT INTO auto_topups
+         (owner, enabled, amount, threshold, payment_method, updated_at)
+       VALUES (@owner, 0, @amount, @threshold, @paymentMethod, @now)
+       ON CONFLICT (owner) DO UPDATE SET
+         payment_method = excluded.payment_method, paused_reason = NULL,
+         updated_at = excluded.updated_at`,
+    );
+    const insertAutoTopupPayment = db.prepare<
+      [{ owner: string; amount: number; now: string }],
+      { id: number; amount: number }
+    >(
+      `INSERT INTO auto_topup_payments
+         (owner, amount, status, created_at, attempted_at)
+       VALUES (@owner, @amount, 'pending', @now, @now)
+       ON CONFLICT DO NOTHING RETURNING id, amount`,
+    );
+    const retryAutoTopupPayment = db.prepare<
+      [{ owner: string; now: string; stale: string }],
+      { id: number; amount: number }
+    >(
+      `UPDATE auto_topup_payments SET attempted_at = @now
+       WHERE owner = @owner AND status = 'pending' AND payment_intent IS NULL
+         AND attempted_at < @stale
+       RETURNING id, amount`,
+    );
+    const startAutoTopup = db.prepare<[string, number]>(
+      'UPDATE auto_topup_payments SET payment_intent = ? WHERE id = ?',
+    );
+    const endAutoTopup = db.prepare<[string, number, string]>(
+      `UPDATE auto_topup_payments SET status = ?
+       WHERE id = ? AND owner = ? AND status = 'pending'`,
+    );
+    const succeedAutoTopup = db.prepare<[string, number, string]>(
+      `UPDATE auto_topup_payments SET status = 'succeeded', payment_intent = ?
+       WHERE id = ? AND owner = ?`,
+    );
+    const pauseAutoTopup = db.prepare<[string, string, string]>(
+      'UPDATE auto_topups SET paused_reason = ?, updated_at = ? WHERE owner = ?',
     );
     const optionalMicro = (eur?: number): number | null =>
       eur === undefined ? null : toMicro(eur);
@@ -152,6 +275,13 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
         if (createBalance.run(payment.owner).changes === 1 && opening !== 0) {
           move({ owner: payment.owner, kind: 'adjustment', amount: opening });
         }
+        if (payment.autoTopup !== undefined) {
+          succeedAutoTopup.run(
+            payment.paymentIntent,
+            payment.autoTopup,
+            payment.owner,
+          );
+        }
         return move({
           owner: payment.owner,
           kind: 'topup',
@@ -160,6 +290,92 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
           fee: payment.fee,
           stripePaymentIntent: payment.paymentIntent,
         });
+      },
+    );
+    const setAutoTopup = db.transaction(
+      (owner: string, settings: AutoTopupSettings): void => {
+        const existing = autoTopup.get(owner);
+        upsertAutoTopup.run({
+          owner,
+          enabled: settings.enabled ? 1 : 0,
+          amount:
+            settings.amount === undefined
+              ? (existing?.amount ?? toMicro(DEFAULT_AUTO_TOPUP.amount))
+              : toMicro(settings.amount),
+          threshold:
+            settings.threshold === undefined
+              ? (existing?.threshold ?? toMicro(DEFAULT_AUTO_TOPUP.threshold))
+              : toMicro(settings.threshold),
+          now: new Date().toISOString(),
+        });
+      },
+    );
+    const saveAutoTopupCard = db.transaction(
+      (
+        owner: string,
+        paymentMethod: string,
+        event: { id: string; type: string },
+      ): boolean => {
+        const now = new Date().toISOString();
+        if (insertStripeEvent.run(event.id, event.type, now).changes === 0) {
+          return false;
+        }
+        upsertAutoTopupCard.run({
+          owner,
+          amount: toMicro(DEFAULT_AUTO_TOPUP.amount),
+          threshold: toMicro(DEFAULT_AUTO_TOPUP.threshold),
+          paymentMethod,
+          now,
+        });
+        return true;
+      },
+    );
+    const autoTopupDue = (owner: string): AutoTopupRow | null => {
+      const settings = autoTopup.get(owner);
+      const current = balance.get(owner);
+      return settings?.enabled &&
+        settings.payment_method &&
+        settings.paused_reason === null &&
+        current &&
+        current.amount <= settings.threshold
+        ? settings
+        : null;
+    };
+    const claimAutoTopup = db.transaction(
+      (owner: string): AutoTopupClaim | null => {
+        const settings = autoTopupDue(owner);
+        if (!settings) {
+          return null;
+        }
+        const now = new Date();
+        const row =
+          insertAutoTopupPayment.get({
+            owner,
+            amount: settings.amount,
+            now: now.toISOString(),
+          }) ??
+          retryAutoTopupPayment.get({
+            owner,
+            now: now.toISOString(),
+            stale: new Date(now.getTime() - AUTO_TOPUP_RETRY_MS).toISOString(),
+          });
+        return row
+          ? {
+              id: row.id,
+              owner,
+              amount: fromMicro(row.amount),
+              paymentMethod: settings.payment_method!,
+            }
+          : null;
+      },
+    );
+    const failAutoTopup = db.transaction(
+      (id: number, owner: string, reason: string): boolean => {
+        if (endAutoTopup.run('failed', id, owner).changes === 0) {
+          return false;
+        }
+        pauseAutoTopup.run(reason, new Date().toISOString(), owner);
+        return true;
       },
     );
     const spent = db.prepare<[string], { story: string; amount: number }>(
@@ -179,6 +395,17 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
       stripeEvent,
       creditPayment: (payment, opening) =>
         creditPayment.immediate(payment, opening),
+      autoTopup,
+      setAutoTopup: (owner, settings) =>
+        setAutoTopup.immediate(owner, settings),
+      saveAutoTopupCard: (owner, paymentMethod, event) =>
+        saveAutoTopupCard.immediate(owner, paymentMethod, event),
+      // Checked first without a write lock, since most debits claim nothing
+      claimAutoTopup: (owner) =>
+        autoTopupDue(owner) ? claimAutoTopup.immediate(owner) : null,
+      startAutoTopup,
+      failAutoTopup: (id, owner, reason) =>
+        failAutoTopup.immediate(id, owner, reason),
     };
     return this.statements;
   }
@@ -225,6 +452,55 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
   // or null when the event or the PaymentIntent was already processed.
   creditPayment(payment: StripePayment, opening: number): number | null {
     return this.prepare().creditPayment(payment, opening);
+  }
+
+  // The owner's auto top-up settings, or null if never set
+  autoTopup(owner: string): AutoTopup | null {
+    const row = this.prepare().autoTopup.get(owner);
+    return row
+      ? {
+          enabled: row.enabled === 1,
+          amount: fromMicro(row.amount),
+          threshold: fromMicro(row.threshold),
+          paymentMethod: row.payment_method,
+          pausedReason: row.paused_reason,
+        }
+      : null;
+  }
+
+  // Saves the settings, keeping the stored (or default) amount and threshold
+  // when left out, and resumes a paused auto top-up
+  setAutoTopup(owner: string, settings: AutoTopupSettings): AutoTopup {
+    this.prepare().setAutoTopup(owner, settings);
+    return this.autoTopup(owner)!;
+  }
+
+  // Stores the card saved by a setup Checkout and resumes a paused auto
+  // top-up, once per event. Returns false for a replayed event.
+  saveAutoTopupCard(
+    owner: string,
+    paymentMethod: string,
+    event: { id: string; type: string },
+  ): boolean {
+    return this.prepare().saveAutoTopupCard(owner, paymentMethod, event);
+  }
+
+  // Records a pending auto top-up when the owner's settings are active and
+  // the balance is at or below the threshold, unless one is pending already.
+  // A pending one that never reached Stripe is claimed again after
+  // AUTO_TOPUP_RETRY_MS.
+  claimAutoTopup(owner: string): AutoTopupClaim | null {
+    return this.prepare().claimAutoTopup(owner);
+  }
+
+  startAutoTopup(id: number, paymentIntent: string): void {
+    this.prepare().startAutoTopup.run(paymentIntent, id);
+  }
+
+  // Marks a pending auto top-up failed and pauses the owner's auto top-up.
+  // Returns false when it was no longer pending.
+  failAutoTopup(id: number, owner: string, reason: string): boolean {
+    return this.prepare().failAutoTopup(id, owner, reason);
   }
 
   // Total LLM debits per story in EUR, across every owner it has had

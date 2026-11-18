@@ -83,11 +83,19 @@ The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an
 {
   "address": "0x1111111111111111111111111111111111111111",
   "balance": 117.42,
-  "stories": [{ "slug": "montpellier", "title": "Montpellier", "spent": 2.58 }]
+  "stories": [{ "slug": "montpellier", "title": "Montpellier", "spent": 2.58 }],
+  "autoTopup": {
+    "enabled": true,
+    "amount": 10,
+    "threshold": 5,
+    "hasCard": true,
+    "paused": false,
+    "pausedReason": null
+  }
 }
 ```
 
-`spent` is the total of the story's `llm` charges in euros, service fee included.
+`spent` is the total of the story's `llm` charges in euros, service fee included. `autoTopup` is `null` until the account sets it up (see [Auto top-up](#auto-top-up)).
 
 ## Billing
 
@@ -115,6 +123,32 @@ Stripe then calls `POST /billing/webhook`, which checks the `Stripe-Signature` h
 
 Each event is processed once: its id goes into the `stripe_events` table in the same transaction as the credit, so a replayed event credits nothing, and a PaymentIntent is never credited twice. If the payment's balance transaction isn't available yet, the webhook returns 500 and Stripe retries it later.
 
+### Auto top-up
+
+A creator can have their saved card charged automatically when their balance runs low, so stories don't stop with a 402.
+
+`PUT /billing/auto-topup`, with a bearer token, saves the settings and returns them in the shape `GET /me` reports under `autoTopup`:
+
+```bash
+curl -X PUT localhost:3000/billing/auto-topup \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled": true, "amount": 10, "threshold": 5}'
+# {"enabled": true, "amount": 10, "threshold": 5, "hasCard": false, "paused": false, "pausedReason": null}
+```
+
+`amount` is charged in euros, from `5` to `500` with at most two decimals, whenever a debit leaves the balance at or below `threshold` (`0` or more). Both are optional: left out, the stored values are kept, `10` and `5` at first. `{"enabled": false}` disables it. Saving the settings also resumes a paused auto top-up.
+
+`POST /billing/auto-topup/setup` returns the URL of a Checkout page in `setup` mode, where the creator saves a card without paying. It returns to `BILLING_RETURN_URL` with `?card=saved` or `?card=cancel`. Its `checkout.session.completed` event stores the card's PaymentMethod for the owner, from the session's SetupIntent, and resumes a paused auto top-up. Saving a card or the settings checks the balance at once.
+
+After each debit, and on each 402, the API checks the owner's settings. When auto top-up is enabled, has a card, isn't paused and the balance is at or below the threshold, it records a pending payment in `auto_topup_payments` (one per owner at a time, in a single transaction, so a burst of debits charges once) and, without delaying the response, creates an off-session PaymentIntent for the amount with the idempotency key `auto-topup-<id>` and metadata `{ "kind": "auto_topup", "owner": "<address>", "pending_id": "<id>" }`.
+
+- `payment_intent.succeeded` credits the net amount as for a Checkout top-up, once per PaymentIntent.
+- A refused payment (declined card, `authentication_required`, a PaymentIntent left in `requires_action`) or a `payment_intent.payment_failed` event pauses auto top-up: `GET /me` shows `paused: true` and the Stripe code in `pausedReason`. Stories then stop at `0` as usual, until the creator saves a card or the settings again.
+- If Stripe can't be reached, the payment stays pending and is tried again with the same idempotency key on a debit at least 10 minutes later.
+
+Settings and saved cards are stored in the `auto_topups` table.
+
 ### Test locally
 
 With the [Stripe CLI](https://docs.stripe.com/stripe-cli), logged in to the test account:
@@ -127,6 +161,8 @@ It prints a signing secret (`whsec_...`): set it as `STRIPE_WEBHOOK_SECRET` and 
 
 `stripe trigger checkout.session.completed` sends a signed event too, but its session has no `topup` metadata, so it only checks that the signature is accepted.
 
+For auto top-up, save the card `4242 4242 4242 4242` through `POST /billing/auto-topup/setup`, enable it with a threshold above the balance and play a move: the balance grows by the net amount. The card `4000 0027 6000 3184` asks for authentication on every payment, so auto top-up pauses with `authentication_required`, and `4000 0000 0000 0341` is saved but declined when charged, which pauses it with `card_declined` ([test cards](https://docs.stripe.com/testing)).
+
 ### Production
 
 In the [Stripe Dashboard](https://dashboard.stripe.com/webhooks), add a webhook endpoint at `https://api.avventura.fun/billing/webhook` with the events:
@@ -135,7 +171,7 @@ In the [Stripe Dashboard](https://dashboard.stripe.com/webhooks), add a webhook 
 - `payment_intent.succeeded`
 - `payment_intent.payment_failed`
 
-The two `payment_intent` events are for automatic top-ups; until then they are acknowledged and ignored. Set its signing secret as `STRIPE_WEBHOOK_SECRET` on the server, with the live `STRIPE_SECRET_KEY`. The account must settle in EUR: a payment settled in another currency is logged as an error and acknowledged without crediting, to be credited by hand.
+The two `payment_intent` events credit and pause automatic top-ups; without them an auto top-up is charged but never credited. Set its signing secret as `STRIPE_WEBHOOK_SECRET` on the server, with the live `STRIPE_SECRET_KEY`. The account must settle in EUR: a payment settled in another currency is logged as an error and acknowledged without crediting, to be credited by hand.
 
 ## Story ownership
 

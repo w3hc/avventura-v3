@@ -407,7 +407,7 @@ describe('Auto top-up (e2e)', () => {
     );
 
     await webhook(paymentEvent('payment_intent.succeeded'));
-    expect((await me()).balance).toBe(22.45);
+    expect(app.get(CreditsService).balance(owner)).toBe(22.45);
   });
 
   it.each([

@@ -120,6 +120,7 @@ interface Statements {
   skipFreeStories: (owners: string[]) => void;
   chargeFreeStory: (movement: Movement) => number;
   freeStorySpent: Database.Statement<[string, string], { amount: number }>;
+  freeSpentSince: Database.Statement<[string, string], { amount: number }>;
 }
 
 @Injectable()
@@ -412,6 +413,10 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
       `SELECT COALESCE(-SUM(amount), 0) AS amount FROM ledger
        WHERE owner = ? AND kind = 'llm' AND story = ?`,
     );
+    const freeSpentSince = db.prepare<[string, string], { amount: number }>(
+      `SELECT COALESCE(-SUM(amount), 0) AS amount FROM ledger
+       WHERE owner = ? AND kind = 'llm' AND created_at >= ?`,
+    );
     const spent = db.prepare<[string], { story: string; amount: number }>(
       `SELECT story, -SUM(amount) AS amount FROM ledger
        WHERE kind = 'llm' AND story IN (SELECT value FROM json_each(?))
@@ -444,6 +449,7 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
       skipFreeStories: (owners) => skipFreeStories.immediate(owners),
       chargeFreeStory: (movement) => chargeFreeStory.immediate(movement),
       freeStorySpent,
+      freeSpentSince,
     };
     return this.statements;
   }
@@ -590,6 +596,18 @@ export class CreditsService implements OnModuleInit, OnModuleDestroy {
   freeStorySpent(story: string): number {
     return fromMicro(
       this.prepare().freeStorySpent.get(FREE_STORY_OWNER, story)!.amount,
+    );
+  }
+
+  // Total price of every free story's requests since UTC midnight in EUR
+  freeSpentToday(): number {
+    const midnight = new Date();
+    midnight.setUTCHours(0, 0, 0, 0);
+    return fromMicro(
+      this.prepare().freeSpentSince.get(
+        FREE_STORY_OWNER,
+        midnight.toISOString(),
+      )!.amount,
     );
   }
 

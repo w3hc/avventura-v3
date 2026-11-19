@@ -22,7 +22,7 @@ import {
   CreditsService,
   FREE_STORY_OWNER,
 } from './credits/credits.service';
-import { freeStoryLimit } from './credits/free-story';
+import { freeDailyLimit, freeStoryLimit } from './credits/free-story';
 import { priceOf, serviceFeeRate } from './credits/service-fee';
 import { PricingService, TokenUsage } from './pricing/pricing.service';
 
@@ -164,6 +164,10 @@ export class AppService implements OnModuleInit {
   );
   private readonly freeStoryLimit = freeStoryLimit(
     process.env.FREE_STORY_LIMIT,
+    (message) => this.logger.warn(message),
+  );
+  private readonly freeDailyLimit = freeDailyLimit(
+    process.env.FREE_DAILY_LIMIT,
     (message) => this.logger.warn(message),
   );
 
@@ -344,9 +348,42 @@ export class AppService implements OnModuleInit {
     return owner;
   }
 
+  private freeDayOver(): boolean {
+    return this.creditsService.freeSpentToday() >= this.freeDailyLimit;
+  }
+
+  private assertFreeDay(): void {
+    if (this.freeDayOver()) {
+      this.logger.warn(
+        `Free spend reached FREE_DAILY_LIMIT today (€${this.freeDailyLimit})`,
+      );
+      throw new HttpException(
+        'Too many people got their free credits today: please retry tomorrow!',
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+  }
+
+  // What the platform would still pay for the owner today, in EUR
+  private freeAllowance(owner: string): number {
+    if (this.freeDayOver()) {
+      return 0;
+    }
+    if (this.creditsService.canClaimFreeStory(owner)) {
+      return this.freeStoryLimit;
+    }
+    const story = this.creditsService.freeStory(owner);
+    if (story === null) {
+      return 0;
+    }
+    const left =
+      this.freeStoryLimit - this.creditsService.freeStorySpent(story);
+    return Math.max(0, roundEur(left));
+  }
+
   // Returns who pays for a request on the story: the platform for its
-  // owner's free story until its total price reaches FREE_STORY_LIMIT,
-  // the owner otherwise
+  // owner's free story until its total price reaches FREE_STORY_LIMIT and
+  // while the day's free spend is under FREE_DAILY_LIMIT, the owner otherwise
   private payerOf(story: StoryData): { owner: string; free: boolean } {
     const owner = this.ownerOf(story);
     if (owner === null || this.creditsService.freeStory(owner) !== story.slug) {
@@ -362,6 +399,7 @@ export class AppService implements OnModuleInit {
         HttpStatus.PAYMENT_REQUIRED,
       );
     }
+    this.assertFreeDay();
     return { owner, free: true };
   }
 
@@ -1064,7 +1102,9 @@ ${ENDING_RULE}${playerNameReminder}`;
     const owner = ownerAddress.toLowerCase();
     // A first story is free until it is saved and claimed
     let free = this.creditsService.canClaimFreeStory(owner);
-    if (!free) {
+    if (free) {
+      this.assertFreeDay();
+    } else {
       this.assertCredits(owner);
     }
 
@@ -1357,7 +1397,9 @@ ${ENDING_RULE}${playerNameReminder}`;
     const freeStory = this.creditsService.freeStory(owner);
     return {
       address: owner,
-      balance: this.creditsService.balance(owner) ?? 0,
+      balance: roundEur(
+        (this.creditsService.balance(owner) ?? 0) + this.freeAllowance(owner),
+      ),
       stories: stories.map((story) => ({
         slug: story.slug,
         title: story.title,

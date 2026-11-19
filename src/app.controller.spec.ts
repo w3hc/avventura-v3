@@ -1326,10 +1326,10 @@ describe('AppController', () => {
       ]);
     });
 
-    it('should return a zero balance for a new address', () => {
+    it('should show the free allowance in a new address balance', () => {
       expect(appController.getMe(STRANGER)).toEqual({
         address: STRANGER,
-        balance: 0,
+        balance: 0.42,
         stories: [],
         freeStory: null,
         autoTopup: null,
@@ -1781,8 +1781,8 @@ describe('AppController', () => {
         await createFree();
         credits().chargeFreeStory({
           story: 'first',
-          llmCost: 1.4,
-          amount: 1.8,
+          llmCost: 0.15,
+          amount: 0.2,
         });
         const generate = mockGenerate();
         mockGame();
@@ -1797,7 +1797,7 @@ describe('AppController', () => {
             : appController['appService'].move('GAME', 0);
 
         await request();
-        expect(credits().freeStorySpent('first')).toBe(2.06);
+        expect(credits().freeStorySpent('first')).toBe(0.46);
         await expect(request()).rejects.toMatchObject({
           status: 402,
           message: 'Free story limit reached',
@@ -1814,12 +1814,85 @@ describe('AppController', () => {
       await create('second');
 
       expect(appController.getMe(STRANGER)).toMatchObject({
-        balance: 5.87,
+        balance: 6.16,
         stories: [
           { slug: 'first', title: 'first', spent: 0.13, free: true },
           { slug: 'second', title: 'second', spent: 0.13, free: false },
         ],
-        freeStory: { slug: 'first', spent: 0.13, limit: 2 },
+        freeStory: { slug: 'first', spent: 0.13, limit: 0.42 },
+      });
+    });
+
+    it('shows the free allowance going down in GET /me', async () => {
+      expect(appController.getMe(STRANGER).balance).toBe(0.42);
+      await create('first');
+      expect(appController.getMe(STRANGER).balance).toBe(0.29);
+      credits().chargeFreeStory({ story: 'first', llmCost: 1, amount: 1.3 });
+      expect(appController.getMe(STRANGER).balance).toBe(0);
+    });
+
+    describe('once the free spend reaches FREE_DAILY_LIMIT today', () => {
+      const message =
+        'Too many people got their free credits today: please retry tomorrow!';
+
+      const spendTheDay = () =>
+        credits().chargeFreeStory({
+          story: 'others',
+          llmCost: 3.3,
+          amount: 4.2,
+        });
+
+      it('refuses to create a free story with 402', async () => {
+        spendTheDay();
+
+        await expect(create('first')).rejects.toMatchObject({
+          status: 402,
+          message,
+        });
+        expect(credits().canClaimFreeStory(STRANGER)).toBe(true);
+        expect(appController.getMe(STRANGER).balance).toBe(0);
+      });
+
+      it.each(['start', 'move'])(
+        'refuses to %s the free story with 402',
+        async (route) => {
+          await createFree();
+          spendTheDay();
+          const generate = mockGenerate();
+          mockGame();
+
+          await expect(
+            route === 'start'
+              ? appController['appService'].start('first', 'en')
+              : appController['appService'].move('GAME', 0),
+          ).rejects.toMatchObject({ status: 402, message });
+          expect(generate).not.toHaveBeenCalled();
+          expect(credits().balance(STRANGER)).toBe(5);
+        },
+      );
+
+      it('still bills paid stories', async () => {
+        await createFree();
+        spendTheDay();
+
+        await create('second');
+        expect(credits().balance(STRANGER)).toBe(4.87);
+      });
+
+      it('reads the limit from FREE_DAILY_LIMIT', async () => {
+        await createFree();
+        process.env.FREE_DAILY_LIMIT = '0.1';
+        const limited = new AppService(
+          app.get(PricingService),
+          credits(),
+          app.get(BillingService),
+        );
+        delete process.env.FREE_DAILY_LIMIT;
+
+        await expect(limited.start('first', 'en')).rejects.toMatchObject({
+          status: 402,
+          message,
+        });
       });
     });
 

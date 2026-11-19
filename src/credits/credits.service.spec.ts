@@ -572,5 +572,23 @@ describe('CreditsService', () => {
         amount: -650_000,
       });
     });
+
+    it('sums the free spend of every story since UTC midnight', () => {
+      jest.useFakeTimers({ now: new Date('2026-11-18T23:59:59Z') });
+      try {
+        credits.chargeFreeStory({ story: 'first', llmCost: 1, amount: 1.3 });
+        credits.open('0xa', 5);
+        credits.charge('0xa', { story: 'paid', llmCost: 1, amount: 1.3 });
+        expect(credits.freeSpentToday()).toBe(1.3);
+
+        jest.setSystemTime(new Date('2026-11-19T00:00:00Z'));
+        expect(credits.freeSpentToday()).toBe(0);
+        credits.chargeFreeStory({ story: 'first', llmCost: 0.1, amount: 0.13 });
+        credits.chargeFreeStory({ story: 'other', llmCost: 0.2, amount: 0.26 });
+        expect(credits.freeSpentToday()).toBe(0.39);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 });

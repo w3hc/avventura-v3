@@ -84,10 +84,10 @@ The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an
   "address": "0x1111111111111111111111111111111111111111",
   "balance": 17.42,
   "stories": [
-    { "slug": "montpellier", "title": "Montpellier", "spent": 1.2, "free": true },
+    { "slug": "montpellier", "title": "Montpellier", "spent": 0.3, "free": true },
     { "slug": "kingston", "title": "Kingston", "spent": 2.58, "free": false }
   ],
-  "freeStory": { "slug": "montpellier", "spent": 1.2, "limit": 2 },
+  "freeStory": { "slug": "montpellier", "spent": 0.3, "limit": 0.42 },
   "autoTopup": {
     "enabled": true,
     "amount": 10,
@@ -99,11 +99,11 @@ The password is `CREDITS_PASSWORD` from `.env`. A wrong password returns 401, an
 }
 ```
 
-`spent` is the total of the story's `llm` charges in euros, service fee included. `free` marks the creator's free story, and `freeStory` gives its spend and `FREE_STORY_LIMIT`, or is `null` when the address has no free story. `autoTopup` is `null` until the account sets it up (see [Auto top-up](#auto-top-up)).
+`balance` adds the free allowance left to the credited balance, so a new address sees `FREE_STORY_LIMIT` (`0.42`) on first login and watches it go down as it plays its free story. The allowance is only shown, never credited, and is `0` once the day's free spend reaches `FREE_DAILY_LIMIT` (see [Free first story](#free-first-story)). `spent` is the total of the story's `llm` charges in euros, service fee included. `free` marks the creator's free story, and `freeStory` gives its spend and `FREE_STORY_LIMIT`, or is `null` when the address has no free story. `autoTopup` is `null` until the account sets it up (see [Auto top-up](#auto-top-up)).
 
 ### Free first story
 
-The first story an address creates is free: the platform pays for its requests, creation included, until their total price reaches `FREE_STORY_LIMIT` euros (default `2`; a negative or non-numeric value uses the default, with a warning). `POST /stories` doesn't check the creator's balance for it.
+The first story an address creates is free: the platform pays for its requests, creation included, until their total price reaches `FREE_STORY_LIMIT` euros (default `0.42`, enough for one new story, one game start and about ten moves; a negative or non-numeric value uses the default, with a warning). `POST /stories` doesn't check the creator's balance for it.
 
 The free story is recorded in the `free_stories` table when it is saved, one per address, so deleting or editing it doesn't grant another one, and a creation that fails leaves it to the next one. Addresses that already own stories on startup get none. Its `llm` ledger rows are charged to the `platform` owner, tagged with the story, so the creator's balance and auto top-up are never touched and the cost of free stories can be reported with:
 
@@ -113,6 +113,8 @@ FROM ledger WHERE owner = 'platform' GROUP BY story;
 ```
 
 Once its total price reaches the limit, `POST /start` and `POST /move` on the free story return `402 Payment Required` (`Free story limit reached`) without calling the AI, and it stays stopped: it doesn't fall back to the creator's balance. The request that crosses the limit can take it slightly above. Later stories are billed to the creator as usual.
+
+The platform's total free spend, summed over every address, is also capped at `FREE_DAILY_LIMIT` euros per UTC day (default `4.2`, same validation). Once the `platform` owner's `llm` charges since UTC midnight reach it, `POST /stories` for a free first story, and `POST /start` and `POST /move` on a free story, return `402 Payment Required` (`Too many people got their free credits today: please retry tomorrow!`) without calling the AI or falling back to the creator's balance, until the next UTC day. A free story that couldn't be created stays claimable.
 
 ## Billing
 

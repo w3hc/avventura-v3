@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `FREE_DAILY_LIMIT` (default `4.2`) caps the platform's total free spend per UTC day, over every address. Once crossed, free story creations and requests on free stories return 402 `Too many people got their free credits today: please retry tomorrow!` until the next day ([#62](https://github.com/w3hc/avventura-v3/issues/62)).
+- `GET /me` adds the free allowance left to `balance`, without crediting it: a new address sees `FREE_STORY_LIMIT` on first login, then what its free story has left, or `0` once the daily cap is crossed ([#62](https://github.com/w3hc/avventura-v3/issues/62)).
 - A creator's first story is free: its requests, creation included, are charged to the `platform` ledger owner, tagged with the story, never to the creator's balance or auto top-up, until their total price reaches `FREE_STORY_LIMIT` euros (default `2`, invalid values fall back with a warning). Then `POST /start` and `POST /move` return 402 `Free story limit reached` ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
 - `free_stories` table: one free story per address, recorded when the story is saved, so deleting or editing it doesn't grant another. Addresses that own stories on startup get none ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
 - `GET /me` marks each story `free` and returns `freeStory`: `{ slug, spent, limit }`, or `null` ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
@@ -63,6 +65,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `FREE_STORY_LIMIT` defaults to `0.42` instead of `2` ([#62](https://github.com/w3hc/avventura-v3/issues/62)).
+- The README no longer shows the built-with-Ethereum badge ([#62](https://github.com/w3hc/avventura-v3/issues/62)).
 - New balances open at €0 instead of €100, whether opened by a request, `POST /credits` or a Stripe payment; existing balances are kept. `DEFAULT_CREDITS` is removed ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
 - On startup, a story with an `ownerAddress` and no `credits` key no longer opens a €100 story balance that moves to its owner; legacy stories keep their amounts ([#46](https://github.com/w3hc/avventura-v3/issues/46)).
 
